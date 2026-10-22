@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Mi rutina{% endblock %}
+{% block breadcrumb %}Mi rutina{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><p class="eyebrow">HÁBITOS QUE TE ACOMPAÑAN</p><h1>Tu rutina, <span class="heading-accent">a tu manera.</span></h1><p class="subheading">Hoy es {{ ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"][today.weekday()] }}. Diseña un ritmo que funcione para ti.</p></div>
+</section>
+<div class="routine-layout">
+  <section class="panel routine-panel">
+    <div class="panel-heading"><div><p class="eyebrow">UN DÍA CON INTENCIÓN</p><h2>Bloques de hoy</h2></div><span class="routine-count">{{ blocks|length }} bloques</span></div>
+    {% if blocks %}
+      <div class="routine-timeline">
+        {% for block in blocks %}
+          <article class="routine-block">
+            <div class="routine-time">{{ block.start_time.strftime("%H:%M") }}</div>
+            <div class="routine-line"><span></span></div>
+            <div class="routine-block-card"><div class="routine-block-icon routine-icon-{{ loop.index0 % 4 }}">{{ ["☀", "✳", "☕", "✓"][loop.index0 % 4] }}</div><div><h3>{{ block.title }}</h3><p>{{ block.duration_minutes }} minutos</p></div><span class="routine-chevron">· · ·</span></div>
+          </article>
+        {% endfor %}
+      </div>
+    {% else %}<div class="empty-inline"><span>◷</span><p>Aún no hay bloques para hoy. Prueba a añadir uno a tu rutina.</p></div>{% endif %}
+  </section>
+  <aside class="panel routine-add-panel">
+    <div class="routine-add-icon">＋</div><p class="eyebrow">HAZLO TUYO</p><h2>Añade un bloque</h2><p class="subheading">Crea un espacio para una actividad, una pausa o un hábito.</p>
+    {% if errors %}<div class="form-errors compact" role="alert"><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+    <form method="post" class="stacked-form">
+      <div class="field"><label for="title">Nombre del bloque</label><input id="title" name="title" maxlength="100" value="{{ form_values.title }}" placeholder="Ej. Lectura tranquila" required></div>
+      <div class="field"><label for="start_time">Hora de inicio</label><input id="start_time" name="start_time" type="time" value="{{ form_values.start_time }}" required></div>
+      <div class="field"><label for="duration_minutes">Duración (minutos)</label><input id="duration_minutes" name="duration_minutes" type="number" min="5" max="480" step="5" value="{{ form_values.duration_minutes }}" required></div>
+      <button class="button button-primary button-wide" type="submit">Añadir a mi rutina <span>→</span></button>
+    </form>
+    <div class="gentle-note"><span>✦</span> Recuerda: tu rutina es una guía, no una regla.</div>
+  </aside>
+</div>
+{% endblock %}

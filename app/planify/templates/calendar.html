@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Calendario{% endblock %}
+{% block breadcrumb %}Calendario{% endblock %}
+{% block content %}
+<section class="page-heading calendar-heading">
+  <div><p class="eyebrow">TU TIEMPO, A TU RITMO</p><h1>Calendario <span class="heading-accent">con intención.</span></h1><p class="subheading">Una mirada clara a todo lo que viene.</p></div>
+  <a class="button button-primary" href="{{ url_for('main.event_form') }}"><span>＋</span> Nuevo evento</a>
+</section>
+<section class="panel calendar-panel">
+  <div class="calendar-toolbar">
+    <div class="month-title"><h2>{{ month_name }} <span>{{ year }}</span></h2><a class="today-link" href="{{ url_for('main.calendar_view', month=today.strftime('%Y-%m')) }}">Hoy</a></div>
+    <div class="month-controls"><a class="icon-button" href="{{ url_for('main.calendar_view', month=previous_month) }}" aria-label="Mes anterior">←</a><a class="icon-button" href="{{ url_for('main.calendar_view', month=next_month) }}" aria-label="Mes siguiente">→</a></div>
+  </div>
+  <div class="calendar-grid" role="grid" aria-label="{{ month_name }} {{ year }}">
+    {% for weekday in weekdays %}<div class="weekday-label" role="columnheader">{{ weekday }}</div>{% endfor %}
+    {% for week in weeks %}
+      {% for day in week %}
+        {% if day %}
+          {% set current_date = "%04d-%02d-%02d"|format(year, month, day) %}
+          <div class="calendar-day {{ 'is-today' if current_date == today.isoformat() else '' }} {{ 'has-events' if events_by_day.get(day) else '' }}" role="gridcell">
+            <span class="day-number">{{ day }}</span>
+            {% for event in events_by_day.get(day, [])[:2] %}
+              <a class="calendar-event category-{{ event.category }}" href="{{ url_for('main.event_form', event_id=event.id) }}" title="{{ event.title }}">{{ event.start_time.strftime("%H:%M") }} {{ event.title }}</a>
+            {% endfor %}
+            {% if events_by_day.get(day, [])|length > 2 %}<span class="more-events">+{{ events_by_day.get(day)|length - 2 }} más</span>{% endif %}
+          </div>
+        {% else %}<div class="calendar-day calendar-empty" aria-hidden="true"></div>{% endif %}
+      {% endfor %}
+    {% endfor %}
+  </div>
+  <div class="calendar-legend"><span><i class="legend-dot legend-work"></i>Trabajo</span><span><i class="legend-dot legend-study"></i>Estudio</span><span><i class="legend-dot legend-personal"></i>Personal</span><span><i class="legend-dot legend-health"></i>Salud</span></div>
+</section>
+{% endblock %}

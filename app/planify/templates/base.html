@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8fc">
+  <title>{% block title %}Planify{% endblock %} · Planify</title>
+  <script>
+    try {
+      if (localStorage.getItem("planify-theme") === "dark") document.documentElement.dataset.theme = "dark";
+    } catch (error) {
+      console.warn("No se pudo cargar la preferencia de tema.", error);
+    }
+  </script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="{{ url_for('main.dashboard') }}" aria-label="Planify, inicio">
+        <span class="brand-mark">P</span><span>planify</span>
+      </a>
+      <div class="workspace-label">ESPACIO PERSONAL</div>
+      <nav class="nav-list" aria-label="Navegación principal">
+        <a class="nav-link {{ 'active' if request.endpoint == 'main.dashboard' else '' }}" href="{{ url_for('main.dashboard') }}"><span class="nav-icon">⌂</span> Inicio</a>
+        <a class="nav-link {{ 'active' if request.endpoint == 'main.calendar_view' else '' }}" href="{{ url_for('main.calendar_view') }}"><span class="nav-icon">▦</span> Calendario</a>
+        <a class="nav-link {{ 'active' if request.endpoint == 'main.routine' else '' }}" href="{{ url_for('main.routine') }}"><span class="nav-icon">◷</span> Mi rutina</a>
+        <a class="nav-link {{ 'active' if request.endpoint == 'main.notifications' else '' }}" href="{{ url_for('main.notifications') }}">
+          <span class="nav-icon">♧</span> Notificaciones
+          {% if unread_count|default(0) %}<span class="nav-count">{{ unread_count }}</span>{% endif %}
+        </a>
+      </nav>
+      <div class="sidebar-bottom">
+        <a class="nav-link {{ 'active' if request.endpoint == 'main.settings' else '' }}" href="{{ url_for('main.settings') }}"><span class="nav-icon">⚙</span> Ajustes</a>
+        <div class="profile-card">
+          <div class="avatar">P</div>
+          <div><strong>Mi espacio</strong><span>Plan personal</span></div>
+          <span class="profile-dots">···</span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <button class="icon-button menu-toggle" type="button" aria-label="Abrir menú" aria-expanded="false" data-menu-toggle>☰</button>
+        <div class="breadcrumb">Mi espacio <span>/</span> {% block breadcrumb %}Inicio{% endblock %}</div>
+        <div class="topbar-actions">
+          <a class="icon-button notification-shortcut" href="{{ url_for('main.notifications') }}" aria-label="Notificaciones">♧{% if unread_count|default(0) %}<i></i>{% endif %}</a>
+          <div class="top-avatar" aria-label="Perfil de Planify">P</div>
+        </div>
+      </header>
+      <div class="content-wrap">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <div class="flash-list" aria-live="polite">
+              {% for category, message in messages %}<div class="flash flash-{{ category }}">{{ message }}</div>{% endfor %}
+            </div>
+          {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+        <footer class="footer">Hecho con intención. Un paso a la vez <span>✳</span></footer>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

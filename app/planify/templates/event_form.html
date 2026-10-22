@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ "Editar evento" if event else "Nuevo evento" }}{% endblock %}
+{% block breadcrumb %}{{ "Editar evento" if event else "Nuevo evento" }}{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><p class="eyebrow">PLANIFICA CON CALMA</p><h1>{{ "Edita tu evento" if event else "Un plan nuevo empieza aquí." }}</h1><p class="subheading">Añade los detalles y deja que Planify te ayude a recordarlo.</p></div>
+</section>
+<section class="panel form-panel">
+  {% if errors %}<div class="form-errors" role="alert"><strong>Revisa estos detalles:</strong><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+  <form method="post" class="event-form">
+    <div class="field field-full"><label for="title">¿Qué tienes en mente?</label><input id="title" name="title" type="text" maxlength="120" value="{{ values.title }}" placeholder="Por ejemplo, preparar presentación" required autofocus></div>
+    <div class="field"><label for="event_date">Fecha</label><input id="event_date" name="event_date" type="date" value="{{ values.event_date }}" required></div>
+    <div class="field"><label for="start_time">Hora de inicio</label><input id="start_time" name="start_time" type="time" value="{{ values.start_time }}" required></div>
+    <div class="field"><label for="category">Categoría</label><select id="category" name="category" required>{% for key, label in categories.items() %}<option value="{{ key }}" {{ "selected" if values.category == key else "" }}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="reminder">Recordarme</label><select id="reminder" name="reminder" required>{% for key, label in reminders.items() %}<option value="{{ key }}" {{ "selected" if values.reminder == key else "" }}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="form-actions field-full"><a class="button button-ghost" href="{{ url_for('main.dashboard') }}">Cancelar</a><button class="button button-primary" type="submit">{{ "Guardar cambios" if event else "Crear evento" }} <span>→</span></button></div>
+  </form>
+</section>
+{% endblock %}

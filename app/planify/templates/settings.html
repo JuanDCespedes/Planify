@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Ajustes{% endblock %}
+{% block breadcrumb %}Ajustes{% endblock %}
+{% block content %}
+<section class="page-heading"><div><p class="eyebrow">TU ESPACIO, TUS REGLAS</p><h1>Ajustes <span class="heading-accent">personales.</span></h1><p class="subheading">Pequeños detalles para que Planify se sienta como tuyo.</p></div></section>
+<section class="panel settings-panel">
+  <div class="settings-section">
+    <div class="settings-icon">◐</div><div class="settings-copy"><h2>Apariencia</h2><p>Elige el tema que te resulte más cómodo.</p></div>
+    <label class="theme-control"><span id="theme-label">Modo claro</span><input type="checkbox" role="switch" aria-label="Activar modo oscuro" data-theme-toggle><span class="switch-track"></span></label>
+  </div>
+  <div class="settings-divider"></div>
+  <div class="settings-section">
+    <div class="settings-icon settings-icon-muted">♧</div><div class="settings-copy"><h2>Recordatorios de eventos</h2><p>Elige el momento del aviso al crear o editar cada evento.</p></div>
+    <span class="settings-static">Se configura por evento</span>
+  </div>
+  <div class="settings-note"><span>✦</span> Tus preferencias de apariencia se guardan en este navegador.</div>
+</section>
+{% endblock %}
