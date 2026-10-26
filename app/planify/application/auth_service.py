@@ -20,11 +20,15 @@ def normalize_email(email: str) -> str:
     return email.strip().casefold()
 
 
-def validate_registration(email: str, password: str, confirmation: str) -> list[str]:
-    errors = []
+def validate_email(email: str) -> list[str]:
     normalized_email = normalize_email(email)
     if len(normalized_email) > 254 or not _EMAIL_PATTERN.fullmatch(normalized_email):
-        errors.append("Escribe un correo electrónico válido.")
+        return ["Escribe un correo electrónico válido."]
+    return []
+
+
+def validate_registration(email: str, password: str, confirmation: str) -> list[str]:
+    errors = validate_email(email)
     if len(password) < MIN_PASSWORD_LENGTH:
         errors.append(f"La contraseña debe tener al menos {MIN_PASSWORD_LENGTH} caracteres.")
     elif len(password) > MAX_PASSWORD_LENGTH:
@@ -70,9 +74,40 @@ class AuthenticationService:
         encoded_password = password if len(password) <= MAX_PASSWORD_LENGTH else ""
         password_hash = user.password_hash if user else _DUMMY_PASSWORD_HASH
         password_is_valid = check_password_hash(password_hash, encoded_password)
-        if user and password_is_valid:
+        if user and user.password_login_enabled and password_is_valid:
             return user
         return None
 
     def get_user(self, user_id: int):
         return self.users.by_id(user_id)
+
+    def authenticate_google(self, email: str, google_subject: str, display_name: str):
+        normalized_email = normalize_email(email)
+        user = self.users.by_google_subject(google_subject)
+        if user:
+            return user, []
+
+        if self.users.by_email(normalized_email):
+            return None, [
+                "Ese correo ya tiene una cuenta. Inicia sesión con tu contraseña y conecta Google desde Ajustes."
+            ]
+
+        user = User(
+            email=normalized_email,
+            google_subject=google_subject,
+            display_name=display_name[:60],
+            password_login_enabled=False,
+        )
+        user.set_password(secrets.token_urlsafe(32))
+        self.users.add(user)
+        try:
+            self.session.flush()
+            seed_demo_data(self.session, user.id)
+            self.session.commit()
+        except IntegrityError:
+            self.session.rollback()
+            existing_user = self.users.by_google_subject(google_subject)
+            if existing_user:
+                return existing_user, []
+            raise
+        return user, []

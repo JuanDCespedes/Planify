@@ -1,4 +1,5 @@
 from flask import Flask
+from authlib.integrations.flask_client import OAuth
 from flask_login import LoginManager
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -32,6 +33,16 @@ def create_app(config_object=Config):
     login_manager.login_message = "Inicia sesión para acceder a tu planificador."
     login_manager.login_message_category = "info"
     limiter.init_app(app)
+    oauth = OAuth(app)
+    if app.config.get("GOOGLE_CLIENT_ID") and app.config.get("GOOGLE_CLIENT_SECRET"):
+        oauth.register(
+            name="google",
+            client_id=app.config["GOOGLE_CLIENT_ID"],
+            client_secret=app.config["GOOGLE_CLIENT_SECRET"],
+            server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+            client_kwargs={"scope": "openid email profile"},
+        )
+    app.extensions["planify_oauth"] = oauth
     app.register_blueprint(main)
     init_database(app)
     register_security_handlers(app)

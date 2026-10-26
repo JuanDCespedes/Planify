@@ -2,17 +2,110 @@
 {% block title %}Ajustes{% endblock %}
 {% block breadcrumb %}Ajustes{% endblock %}
 {% block content %}
-<section class="page-heading"><div><p class="eyebrow">TU ESPACIO, TUS REGLAS</p><h1>Ajustes <span class="heading-accent">personales.</span></h1><p class="subheading">Pequeños detalles para que Planify se sienta como tuyo.</p></div></section>
-<section class="panel settings-panel">
-  <div class="settings-section">
-    <div class="settings-icon">◐</div><div class="settings-copy"><h2>Apariencia</h2><p>Elige el tema que te resulte más cómodo.</p></div>
-    <label class="theme-control"><span id="theme-label">Modo claro</span><input type="checkbox" role="switch" aria-label="Activar modo oscuro" data-theme-toggle><span class="switch-track"></span></label>
-  </div>
-  <div class="settings-divider"></div>
-  <div class="settings-section">
-    <div class="settings-icon settings-icon-muted">♧</div><div class="settings-copy"><h2>Recordatorios de eventos</h2><p>Elige el momento del aviso al crear o editar cada evento.</p></div>
-    <span class="settings-static">Se configura por evento</span>
-  </div>
-  <div class="settings-note"><span>✦</span> Tus preferencias de apariencia se guardan en este navegador.</div>
+<section class="page-heading">
+  <div><p class="eyebrow">TU ESPACIO, TUS REGLAS</p><h1>Ajustes <span class="heading-accent">personales.</span></h1><p class="subheading">Administra tu perfil, tus preferencias y tus categorías.</p></div>
 </section>
+
+<div class="settings-stack">
+  <section class="panel settings-panel" aria-labelledby="appearance-heading">
+    <div class="settings-section">
+      <div class="settings-icon" aria-hidden="true">◐</div>
+      <div class="settings-copy"><h2 id="appearance-heading">Apariencia</h2><p>Elige el tema que te resulte más cómodo. Se guarda en este navegador.</p></div>
+      <label class="theme-control"><span id="theme-label">Modo claro</span><input type="checkbox" role="switch" aria-label="Activar modo oscuro" data-theme-toggle><span class="switch-track"></span></label>
+    </div>
+  </section>
+
+  <section class="panel settings-card" aria-labelledby="profile-heading">
+    <div class="settings-card-heading"><span class="settings-icon" aria-hidden="true">♙</span><div><h2 id="profile-heading">Tu perfil</h2><p>Actualiza el nombre y el correo de acceso a tu cuenta.</p></div></div>
+    <form method="post" action="{{ url_for('main.update_profile') }}" class="settings-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field"><label for="display_name">Nombre</label><input id="display_name" name="display_name" type="text" maxlength="60" value="{{ current_user.display_name }}" autocomplete="name" placeholder="¿Cómo te llamamos?"></div>
+      <div class="field"><label for="settings-email">Correo electrónico</label><input id="settings-email" name="email" type="email" maxlength="254" value="{{ current_user.email }}" autocomplete="email" required></div>
+      {% if current_user.password_login_enabled %}
+      <div class="field field-full"><label for="profile-password">Contraseña actual <span class="field-hint">(necesaria solo para cambiar el correo)</span></label><input id="profile-password" name="current_password" type="password" autocomplete="current-password"></div>
+      {% else %}
+      <p class="settings-note field-full">El correo de esta cuenta se administra con Google. Crea una contraseña para poder editarlo desde aquí.</p>
+      {% endif %}
+      <div class="form-actions field-full"><button class="button button-primary" type="submit">Guardar perfil</button></div>
+    </form>
+  </section>
+
+  <section class="panel settings-card" aria-labelledby="google-heading">
+    <div class="settings-card-heading"><span class="settings-icon settings-icon-muted" aria-hidden="true">G</span><div><h2 id="google-heading">Acceso con Google</h2><p>Conecta el correo de Google que coincide con esta cuenta. No se vinculan cuentas automáticamente por correo.</p></div></div>
+    <div class="settings-inline">
+      {% if current_user.google_subject %}
+      <span class="settings-static">Cuenta de Google conectada</span>
+      {% else %}
+      <a class="button button-secondary" href="{{ url_for('main.google_login') }}">Conectar Google</a>
+      {% endif %}
+      {% if not google_configured %}<p class="field-hint">Para habilitarlo, primero configura el cliente OAuth de Google siguiendo el README.</p>{% endif %}
+    </div>
+  </section>
+
+  <section class="panel settings-card" aria-labelledby="password-heading">
+    <div class="settings-card-heading"><span class="settings-icon settings-icon-muted" aria-hidden="true">⌑</span><div><h2 id="password-heading">{{ "Cambiar contraseña" if current_user.password_login_enabled else "Crear contraseña" }}</h2><p>Usa una contraseña larga y única, de al menos 12 caracteres.</p></div></div>
+    <form method="post" action="{{ url_for('main.update_password') }}" class="settings-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% if current_user.password_login_enabled %}
+      <div class="field field-full"><label for="current-password">Contraseña actual</label><input id="current-password" name="current_password" type="password" maxlength="128" autocomplete="current-password" required></div>
+      {% endif %}
+      <div class="field"><label for="new-password">Nueva contraseña</label><input id="new-password" name="new_password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></div>
+      <div class="field"><label for="password-confirmation">Confirmar contraseña</label><input id="password-confirmation" name="password_confirmation" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></div>
+      <div class="form-actions field-full"><button class="button button-primary" type="submit">Guardar contraseña</button></div>
+    </form>
+  </section>
+
+  <section class="panel settings-card" aria-labelledby="preferences-heading">
+    <div class="settings-card-heading"><span class="settings-icon" aria-hidden="true">♧</span><div><h2 id="preferences-heading">Recordatorios y notificaciones</h2><p>Define los valores iniciales para los nuevos eventos. No se envían correos ni notificaciones push.</p></div></div>
+    <form method="post" action="{{ url_for('main.update_preferences') }}" class="settings-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field"><label for="default-reminder">Recordatorio predeterminado</label><select id="default-reminder" name="default_reminder">{% for key, label in reminders.items() %}<option value="{{ key }}" {{ "selected" if current_user.default_reminder == key else "" }}>{{ label }}</option>{% endfor %}</select></div>
+      <label class="preference-switch"><input name="in_app_notifications" type="checkbox" {{ "checked" if current_user.in_app_notifications else "" }}><span>Mostrar el contador de avisos no leídos en Inicio</span></label>
+      <p class="settings-note field-full">La lista de notificaciones sigue disponible. Los avisos de esta versión son de demostración; no se envían correos ni notificaciones push.</p>
+      <div class="form-actions field-full"><button class="button button-primary" type="submit">Guardar preferencias</button></div>
+    </form>
+  </section>
+
+  <section class="panel settings-card" aria-labelledby="categories-heading">
+    <div class="settings-card-heading"><span class="settings-icon" aria-hidden="true">▦</span><div><h2 id="categories-heading">Mis categorías</h2><p>Son privadas de tu cuenta. Para eliminar una categoría, primero reasigna sus eventos.</p></div></div>
+    <form method="post" action="{{ url_for('main.create_category') }}" class="category-create-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field"><label for="new-category">Nueva categoría</label><input id="new-category" name="name" type="text" maxlength="40" placeholder="Por ejemplo, Mi categoría" required></div>
+      <div class="field"><label for="new-category-color">Color</label><select id="new-category-color" name="color">{% for key, label in category_colors.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
+      <button class="button button-primary category-add-button" type="submit">Añadir categoría</button>
+    </form>
+    <div class="category-list">
+      {% for category in categories %}
+      <div class="category-row">
+        <span class="category-pill category-{{ category.color }}">{{ category.name }}</span>
+        <form method="post" action="{{ url_for('main.update_category', category_id=category.id) }}" class="category-edit-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="sr-only" for="category-name-{{ category.id }}">Nombre de {{ category.name }}</label><input id="category-name-{{ category.id }}" name="name" type="text" maxlength="40" value="{{ category.name }}" required>
+          <label class="sr-only" for="category-color-{{ category.id }}">Color de {{ category.name }}</label><select id="category-color-{{ category.id }}" name="color">{% for key, label in category_colors.items() %}<option value="{{ key }}" {{ "selected" if category.color == key else "" }}>{{ label }}</option>{% endfor %}</select>
+          <button class="button button-secondary" type="submit">Guardar</button>
+        </form>
+        <form method="post" action="{{ url_for('main.delete_category', category_id=category.id) }}" data-confirm="¿Eliminar la categoría {{ category.name }}? Solo es posible si no tiene eventos.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="small-action category-delete" type="submit" aria-label="Eliminar {{ category.name }}">×</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="panel settings-card danger-card" aria-labelledby="privacy-heading">
+    <div class="settings-card-heading"><span class="settings-icon danger-icon" aria-hidden="true">!</span><div><h2 id="privacy-heading">Privacidad y cuenta</h2><p>Eliminar la cuenta borra permanentemente tus eventos, rutinas, notificaciones y categorías.</p></div></div>
+    <form method="post" action="{{ url_for('main.delete_account') }}" class="settings-form" data-confirm="Esta acción no se puede deshacer. ¿Deseas eliminar tu cuenta y todos sus datos?">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="field"><label for="confirm-email">Escribe {{ current_user.email }} para confirmar</label><input id="confirm-email" name="confirm_email" type="email" autocomplete="email" required></div>
+      <div class="field"><label for="delete-confirmation">Escribe ELIMINAR</label><input id="delete-confirmation" name="confirmation" type="text" required></div>
+      {% if current_user.password_login_enabled %}
+      <div class="field field-full"><label for="delete-password">Contraseña actual</label><input id="delete-password" name="current_password" type="password" autocomplete="current-password" required></div>
+      {% else %}
+      <p class="settings-note field-full">Por seguridad, vuelve a iniciar sesión con Google durante los 10 minutos previos a confirmar.</p>
+      {% endif %}
+      <div class="form-actions field-full"><button class="button button-danger" type="submit">Eliminar mi cuenta</button></div>
+    </form>
+  </section>
+</div>
 {% endblock %}

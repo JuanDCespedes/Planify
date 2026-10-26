@@ -1,12 +1,19 @@
 from datetime import date, time
 
 
-CATEGORIES = {
-    "trabajo": "Trabajo",
-    "estudio": "Estudio",
+DEFAULT_CATEGORIES = (
+    ("Trabajo", "work"),
+    ("Estudio", "study"),
+    ("Personal", "personal"),
+    ("Salud", "health"),
+    ("Otro", "other"),
+)
+CATEGORY_COLORS = {
+    "work": "Trabajo",
+    "study": "Estudio",
     "personal": "Personal",
-    "salud": "Salud",
-    "otro": "Otro",
+    "health": "Salud",
+    "other": "Otro",
 }
 
 REMINDERS = {
@@ -19,6 +26,17 @@ REMINDERS = {
 }
 
 
+def validate_category(name, color):
+    errors = []
+    if not name or not name.strip():
+        errors.append("Escribe un nombre para la categoría.")
+    elif len(name.strip()) > 40:
+        errors.append("El nombre de la categoría no puede superar los 40 caracteres.")
+    if color not in CATEGORY_COLORS:
+        errors.append("Selecciona un color disponible.")
+    return errors
+
+
 def validate_event(title, event_date, start_time, category, reminder):
     errors = []
     if not title or not title.strip():
@@ -29,7 +47,7 @@ def validate_event(title, event_date, start_time, category, reminder):
         errors.append("Selecciona una fecha válida.")
     if not isinstance(start_time, time):
         errors.append("Selecciona una hora válida.")
-    if category not in CATEGORIES:
+    if not isinstance(category, int) or category < 1:
         errors.append("Selecciona una categoría válida.")
     if reminder not in REMINDERS:
         errors.append("Selecciona un recordatorio válido.")

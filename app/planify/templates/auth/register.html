@@ -11,6 +11,10 @@
   </div>
 {% endif %}
 
+<a class="google-button" href="{{ url_for('main.google_login') }}"><span class="google-mark" aria-hidden="true">G</span>Crear cuenta con Google</a>
+{% if not google_configured %}<p class="auth-hint google-hint">Google estará disponible cuando configures tus credenciales OAuth.</p>{% endif %}
+<div class="auth-divider"><span>o regístrate con tu correo</span></div>
+
 <form class="auth-form" method="post">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <div class="field">

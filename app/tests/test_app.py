@@ -2,12 +2,13 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from sqlalchemy import select
 from werkzeug.security import check_password_hash
 
 from planify import create_app
-from planify.domain.models import Event, Notification, User
+from planify.domain.models import Category, Event, Notification, User
 from planify.infrastructure.database import get_session
 
 
@@ -17,6 +18,11 @@ class TestConfig:
     DATABASE_URL = "sqlite:///:memory:"
     WTF_CSRF_ENABLED = False
     RATELIMIT_ENABLED = False
+
+
+class GoogleTestConfig(TestConfig):
+    GOOGLE_CLIENT_ID = "test-client-id"
+    GOOGLE_CLIENT_SECRET = "test-client-secret"
 
 
 class PlanifyRoutesTest(unittest.TestCase):
@@ -159,13 +165,20 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertEqual(self.client.get("/calendar?month=9999-12").status_code, 200)
         self.assertEqual(self.client.get("/routine").status_code, 200)
 
+        with self.app.app_context():
+            work_category_id = get_session().scalar(
+                select(Category.id).where(Category.color == "work")
+            )
+            personal_category_id = get_session().scalar(
+                select(Category.id).where(Category.color == "personal")
+            )
         response = self.client.post(
             "/events/new",
             data={
                 "title": "Reunión de prueba",
                 "event_date": "2030-04-10",
                 "start_time": "14:30",
-                "category": "trabajo",
+                "category": str(work_category_id),
                 "reminder": "15m",
             },
             follow_redirects=True,
@@ -183,7 +196,7 @@ class PlanifyRoutesTest(unittest.TestCase):
                 "title": "Reunión actualizada",
                 "event_date": "2030-04-11",
                 "start_time": "15:00",
-                "category": "personal",
+                "category": str(personal_category_id),
                 "reminder": "1h",
             },
             follow_redirects=True,
@@ -231,6 +244,240 @@ class PlanifyRoutesTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.headers["Location"], "/")
+
+    def test_personal_categories_are_private_and_cannot_be_deleted_while_in_use(self):
+        self.register(self.client, "ana@example.com")
+        created = self.client.post(
+            "/settings/categories",
+            data={"name": "Universidad", "color": "study"},
+            follow_redirects=True,
+        )
+        self.assertEqual(created.status_code, 200)
+        self.assertIn("Universidad".encode(), created.data)
+
+        with self.app.app_context():
+            category = get_session().scalar(
+                select(Category).where(Category.name == "Universidad")
+            )
+            category_id = category.id
+            ana_id = category.user_id
+        updated = self.client.post(
+            f"/settings/categories/{category_id}",
+            data={"name": "Campus", "color": "personal"},
+            follow_redirects=True,
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertIn("Campus".encode(), updated.data)
+
+        other_client = self.app.test_client()
+        self.register(other_client, "luis@example.com", "otra-clave-segura-456")
+        other_settings = other_client.get("/settings").data
+        self.assertNotIn(b"Campus", other_settings)
+        rejected = other_client.post(
+            "/events/new",
+            data={
+                "title": "Evento ajeno",
+                "event_date": "2030-04-10",
+                "start_time": "14:30",
+                "category": str(category_id),
+                "reminder": "15m",
+            },
+        )
+        self.assertEqual(rejected.status_code, 400)
+        self.assertIn("categoría de tu cuenta".encode(), rejected.data)
+
+        with self.app.app_context():
+            self.assertNotEqual(ana_id, get_session().scalar(
+                select(Category.user_id).where(Category.color == "work", Category.user_id != ana_id)
+            ))
+
+        created_event = self.client.post(
+            "/events/new",
+            data={
+                "title": "Examen",
+                "event_date": "2030-04-10",
+                "start_time": "14:30",
+                "category": str(category_id),
+                "reminder": "15m",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(created_event.status_code, 200)
+        blocked_delete = self.client.post(
+            f"/settings/categories/{category_id}/delete",
+            follow_redirects=True,
+        )
+        self.assertIn("tiene eventos".encode(), blocked_delete.data)
+        with self.app.app_context():
+            event = get_session().scalar(select(Event).where(Event.title == "Examen"))
+            event_id = event.id
+        self.client.post(f"/events/{event_id}/delete")
+        self.client.post(f"/settings/categories/{category_id}/delete")
+        with self.app.app_context():
+            self.assertIsNone(get_session().get(Category, category_id))
+
+    def test_settings_persist_profile_preferences_and_password(self):
+        self.register(self.client)
+        profile = self.client.post(
+            "/settings/profile",
+            data={
+                "display_name": "Ana",
+                "email": "ana.nueva@example.com",
+                "current_password": "una-clave-segura-123",
+            },
+        )
+        self.assertEqual(profile.status_code, 302)
+        preferences = self.client.post(
+            "/settings/preferences",
+            data={"default_reminder": "1d"},
+        )
+        self.assertEqual(preferences.status_code, 302)
+        password = self.client.post(
+            "/settings/password",
+            data={
+                "current_password": "una-clave-segura-123",
+                "new_password": "una-clave-nueva-789",
+                "password_confirmation": "una-clave-nueva-789",
+            },
+        )
+        self.assertEqual(password.status_code, 302)
+
+        with self.app.app_context():
+            user = get_session().scalar(select(User).where(User.email == "ana.nueva@example.com"))
+            self.assertEqual(user.display_name, "Ana")
+            self.assertEqual(user.default_reminder, "1d")
+            self.assertFalse(user.in_app_notifications)
+            self.assertTrue(user.check_password("una-clave-nueva-789"))
+
+        self.client.post("/logout")
+        login = self.client.post(
+            "/login",
+            data={"email": "ana.nueva@example.com", "password": "una-clave-nueva-789"},
+        )
+        self.assertEqual(login.status_code, 302)
+
+    def test_account_deletion_requires_confirmation_and_removes_owned_data(self):
+        self.register(self.client)
+        with self.app.app_context():
+            user_id = get_session().scalar(select(User.id).where(User.email == "ana@example.com"))
+        rejected = self.client.post(
+            "/settings/account/delete",
+            data={
+                "confirm_email": "ana@example.com",
+                "confirmation": "BORRAR",
+                "current_password": "una-clave-segura-123",
+            },
+        )
+        self.assertEqual(rejected.status_code, 302)
+        with self.app.app_context():
+            self.assertIsNotNone(get_session().get(User, user_id))
+
+        removed = self.client.post(
+            "/settings/account/delete",
+            data={
+                "confirm_email": "ana@example.com",
+                "confirmation": "ELIMINAR",
+                "current_password": "una-clave-segura-123",
+            },
+            follow_redirects=True,
+        )
+        self.assertEqual(removed.status_code, 200)
+        self.assertIn("se eliminaron".encode(), removed.data)
+        with self.app.app_context():
+            self.assertIsNone(get_session().get(User, user_id))
+            self.assertEqual(get_session().scalar(
+                select(Event.id).where(Event.user_id == user_id)
+            ), None)
+
+    def test_google_login_is_exposed_but_requires_credentials(self):
+        response = self.client.get("/login")
+        self.assertIn("Continuar con Google".encode(), response.data)
+        unavailable = self.client.get("/auth/google", follow_redirects=True)
+        self.assertEqual(unavailable.status_code, 200)
+        self.assertIn("Google aún no está configurado".encode(), unavailable.data)
+
+    def test_google_oidc_creates_account_and_requires_verified_email(self):
+        app = create_app(GoogleTestConfig)
+        client = app.test_client()
+        google = app.extensions["planify_oauth"].google
+        with patch.object(
+            google,
+            "authorize_access_token",
+            return_value={
+                "userinfo": {
+                    "sub": "google-subject-ana",
+                    "email": "ana-google@example.com",
+                    "email_verified": True,
+                    "name": "Ana Google",
+                }
+            },
+        ):
+            response = client.get("/auth/google/callback", follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Agenda del día".encode(), response.data)
+        with app.app_context():
+            user = get_session().scalar(
+                select(User).where(User.email == "ana-google@example.com")
+            )
+            self.assertEqual(user.google_subject, "google-subject-ana")
+            self.assertFalse(user.password_login_enabled)
+            self.assertIsNotNone(get_session().scalar(
+                select(Category.id).where(Category.user_id == user.id)
+            ))
+        app.extensions["planify_engine"].dispose()
+
+        unverified_app = create_app(GoogleTestConfig)
+        unverified_client = unverified_app.test_client()
+        google = unverified_app.extensions["planify_oauth"].google
+        with patch.object(
+            google,
+            "authorize_access_token",
+            return_value={
+                "userinfo": {
+                    "sub": "unverified-subject",
+                    "email": "bad@example.com",
+                    "email_verified": False,
+                }
+            },
+        ):
+            response = unverified_client.get("/auth/google/callback", follow_redirects=True)
+        self.assertIn("no confirmó tu correo".encode(), response.data)
+        with unverified_app.app_context():
+            self.assertIsNone(
+                get_session().scalar(select(User).where(User.email == "bad@example.com"))
+            )
+        unverified_app.extensions["planify_engine"].dispose()
+
+    def test_existing_email_requires_an_explicit_google_account_link(self):
+        app = create_app(GoogleTestConfig)
+        client = app.test_client()
+        self.register(client, "ana@example.com")
+        with app.app_context():
+            user_id = get_session().scalar(select(User.id).where(User.email == "ana@example.com"))
+
+        google = app.extensions["planify_oauth"].google
+        profile = {
+            "userinfo": {
+                "sub": "google-subject-ana",
+                "email": "ana@example.com",
+                "email_verified": True,
+                "name": "Ana",
+            }
+        }
+        with patch.object(google, "authorize_access_token", return_value=profile):
+            response = client.get("/auth/google/callback", follow_redirects=True)
+        self.assertIn("conecta Google desde Ajustes".encode(), response.data)
+        with app.app_context():
+            self.assertIsNone(get_session().get(User, user_id).google_subject)
+
+        with client.session_transaction() as session:
+            session["google_link_user_id"] = user_id
+        with patch.object(google, "authorize_access_token", return_value=profile):
+            response = client.get("/auth/google/callback", follow_redirects=True)
+        self.assertIn("cuenta de Google quedó conectada".encode(), response.data)
+        with app.app_context():
+            self.assertEqual(get_session().get(User, user_id).google_subject, "google-subject-ana")
+        app.extensions["planify_engine"].dispose()
 
     def test_csrf_protects_state_changing_requests(self):
         class CsrfTestConfig(TestConfig):
@@ -329,6 +576,54 @@ class PlanifyRoutesTest(unittest.TestCase):
                 self.assertIsNone(legacy_event.user_id)
                 connection.close()
             self.assertNotIn(b"Dato anterior", client.get("/").data)
+            app.extensions["planify_engine"].dispose()
+
+    def test_migration_connects_existing_users_events_to_private_categories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory, "owned-legacy.db")
+            legacy_connection = sqlite3.connect(database_path)
+            try:
+                legacy_connection.executescript(
+                    """
+                    CREATE TABLE users (
+                        id INTEGER PRIMARY KEY,
+                        email VARCHAR(254) NOT NULL UNIQUE,
+                        password_hash VARCHAR(256) NOT NULL,
+                        created_at DATETIME NOT NULL
+                    );
+                    INSERT INTO users (id, email, password_hash, created_at)
+                    VALUES (7, 'ana@example.com', 'legacy-hash', '2029-12-31');
+                    CREATE TABLE events (
+                        id INTEGER PRIMARY KEY,
+                        user_id INTEGER REFERENCES users(id),
+                        title VARCHAR(120) NOT NULL,
+                        event_date DATE NOT NULL,
+                        start_time TIME NOT NULL,
+                        category VARCHAR(30) NOT NULL,
+                        reminder VARCHAR(20) NOT NULL,
+                        created_at DATETIME NOT NULL
+                    );
+                    INSERT INTO events
+                        (id, user_id, title, event_date, start_time, category, reminder, created_at)
+                    VALUES
+                        (11, 7, 'Evento conservado', '2030-01-01', '09:00:00', 'personal', '15m', '2029-12-31');
+                    """
+                )
+            finally:
+                legacy_connection.close()
+
+            class OwnedMigrationTestConfig(TestConfig):
+                DATABASE_URL = f"sqlite:///{database_path.as_posix()}"
+
+            app = create_app(OwnedMigrationTestConfig)
+            with app.app_context():
+                user = get_session().get(User, 7)
+                event = get_session().get(Event, 11)
+                self.assertEqual(user.default_reminder, "15m")
+                self.assertTrue(user.password_login_enabled)
+                self.assertEqual(event.user_id, 7)
+                self.assertEqual(event.category_item.name, "Personal")
+                self.assertEqual(event.category_item.user_id, user.id)
             app.extensions["planify_engine"].dispose()
 
 

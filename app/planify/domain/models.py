@@ -1,8 +1,8 @@
 from datetime import date, datetime, time, timezone
 
 from flask_login import UserMixin
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, Time
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, Time, UniqueConstraint
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
@@ -12,10 +12,16 @@ class Base(DeclarativeBase):
 
 class User(UserMixin, Base):
     __tablename__ = "users"
+    __table_args__ = (Index("uq_users_google_subject", "google_subject", unique=True),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(256))
+    password_login_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    google_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    display_name: Mapped[str] = mapped_column(String(60), default="")
+    default_reminder: Mapped[str] = mapped_column(String(20), default="15m")
+    in_app_notifications: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
@@ -37,8 +43,20 @@ class Event(Base):
     event_date: Mapped[date] = mapped_column(Date)
     start_time: Mapped[time] = mapped_column(Time)
     category: Mapped[str] = mapped_column(String(30))
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), nullable=True)
+    category_item: Mapped["Category | None"] = relationship(lazy="selectin")
     reminder: Mapped[str] = mapped_column(String(20), default="at_time")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
+class Category(Base):
+    __tablename__ = "categories"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_categories_user_name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(40))
+    color: Mapped[str] = mapped_column(String(20), default="other")
 
 
 class RoutineBlock(Base):

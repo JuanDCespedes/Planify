@@ -42,7 +42,7 @@
             <div class="agenda-time">{{ event.start_time.strftime("%H:%M") }}</div>
             <div class="agenda-rail"><span class="agenda-dot category-{{ event.category }}"></span></div>
             <div class="agenda-details">
-              <div class="agenda-title-row"><h3>{{ event.title }}</h3><span class="category-pill category-{{ event.category }}">{{ category_labels[event.category] }}</span></div>
+              <div class="agenda-title-row"><h3>{{ event.title }}</h3><span class="category-pill category-{{ event.category_item.color if event.category_item else event.category }}">{{ event.category_item.name if event.category_item else category_labels.get(event.category, "Otro") }}</span></div>
               <p>Recordatorio: {{ {"at_time": "a la hora del evento", "5m": "5 min antes", "15m": "15 min antes", "30m": "30 min antes", "1h": "1 hora antes", "1d": "1 día antes"}[event.reminder] }}</p>
             </div>
             <div class="item-actions">
@@ -67,8 +67,8 @@
         {% for event in upcoming %}
           <article class="upcoming-item">
             <div class="date-tile"><span>{{ ["LUN", "MAR", "MIÉ", "JUE", "VIE", "SÁB", "DOM"][event.event_date.weekday()] }}</span><strong>{{ event.event_date.strftime("%d") }}</strong></div>
-            <div class="upcoming-info"><h3>{{ event.title }}</h3><p>{{ event.start_time.strftime("%H:%M") }} · {{ category_labels[event.category] }}</p></div>
-            <span class="upcoming-marker category-{{ event.category }}"></span>
+            <div class="upcoming-info"><h3>{{ event.title }}</h3><p>{{ event.start_time.strftime("%H:%M") }} · {{ event.category_item.name if event.category_item else category_labels.get(event.category, "Otro") }}</p></div>
+            <span class="upcoming-marker category-{{ event.category_item.color if event.category_item else event.category }}"></span>
           </article>
         {% endfor %}
       </div>

@@ -3,7 +3,7 @@ from datetime import date, datetime, time
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from planify.domain.models import Event, Notification, RoutineBlock, User
+from planify.domain.models import Category, Event, Notification, RoutineBlock, User
 
 
 class UserRepository:
@@ -16,9 +16,54 @@ class UserRepository:
     def by_id(self, user_id: int):
         return self.session.get(User, user_id)
 
+    def by_google_subject(self, google_subject: str):
+        return self.session.scalar(select(User).where(User.google_subject == google_subject))
+
     def add(self, user: User):
         self.session.add(user)
 
+    def delete(self, user: User):
+        self.session.delete(user)
+
+
+class CategoryRepository:
+    def __init__(self, session: Session):
+        self.session = session
+
+    def all(self, user_id: int):
+        return self.session.scalars(
+            select(Category).where(Category.user_id == user_id).order_by(Category.name.collate("NOCASE"))
+        ).all()
+
+    def get(self, category_id: int, user_id: int):
+        return self.session.scalar(
+            select(Category).where(Category.id == category_id, Category.user_id == user_id)
+        )
+
+    def by_name(self, name: str, user_id: int, exclude_id: int | None = None):
+        normalized_name = name.strip().casefold()
+        return next(
+            (
+                category
+                for category in self.all(user_id)
+                if category.id != exclude_id and category.name.casefold() == normalized_name
+            ),
+            None,
+        )
+
+    def in_use(self, category_id: int, user_id: int):
+        return self.session.scalar(
+            select(Event.id).where(
+                Event.category_id == category_id,
+                Event.user_id == user_id,
+            ).limit(1)
+        ) is not None
+
+    def add(self, category: Category):
+        self.session.add(category)
+
+    def delete(self, category: Category):
+        self.session.delete(category)
 
 class EventRepository:
     def __init__(self, session: Session):

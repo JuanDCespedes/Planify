@@ -35,7 +35,7 @@
         <a class="nav-link {{ 'active' if request.endpoint == 'main.settings' else '' }}" href="{{ url_for('main.settings') }}"><span class="nav-icon">⚙</span> Ajustes</a>
         <div class="profile-card">
           <div class="avatar">{{ current_user.email[0]|upper }}</div>
-          <div><strong>{{ current_user.email }}</strong><span>Cuenta personal</span></div>
+          <div><strong>{{ current_user.display_name or current_user.email }}</strong><span>{{ current_user.email }}</span></div>
           <span class="profile-dots">···</span>
         </div>
         <form class="logout-form" method="post" action="{{ url_for('main.logout') }}">

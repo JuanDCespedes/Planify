@@ -2,11 +2,12 @@ import calendar
 from datetime import date, datetime, time, timedelta, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from planify.domain.models import Event, Notification, RoutineBlock, User
-from planify.domain.rules import validate_event, validate_routine_block
-from planify.infrastructure.repositories import EventRepository, NotificationRepository, RoutineRepository
+from planify.domain.models import Category, Event, Notification, RoutineBlock, User
+from planify.domain.rules import DEFAULT_CATEGORIES, validate_category, validate_event, validate_routine_block
+from planify.infrastructure.repositories import CategoryRepository, EventRepository, NotificationRepository, RoutineRepository
 
 
 class EventService:
@@ -23,12 +24,21 @@ class EventService:
 
     def save(self, event, title, event_date, start_time, category, reminder):
         errors = validate_event(title, event_date, start_time, category, reminder)
+        category_item = self.events.session.get(Category, category) if isinstance(category, int) else None
+        if category_item is None or category_item.user_id != self.user_id:
+            errors.append("Selecciona una categoría de tu cuenta.")
         if errors:
             return errors
         event.title = title.strip()
         event.event_date = event_date
         event.start_time = start_time
-        event.category = category
+        event.category = {
+            "work": "trabajo",
+            "study": "estudio",
+            "personal": "personal",
+            "health": "salud",
+        }.get(category_item.color, "otro")
+        event.category_id = category_item.id
         event.reminder = reminder
         event.user_id = self.user_id
         self.events.add(event)
@@ -91,23 +101,91 @@ class NotificationService:
         self.session.commit()
 
 
+class CategoryService:
+    def __init__(self, session: Session, user_id: int):
+        self.session = session
+        self.user_id = user_id
+        self.categories = CategoryRepository(session)
+
+    def list_all(self):
+        return self.categories.all(self.user_id)
+
+    def create(self, name, color):
+        errors = validate_category(name, color)
+        normalized_name = name.strip() if name else ""
+        if not errors and self.categories.by_name(normalized_name, self.user_id):
+            errors.append("Ya existe una categoría con ese nombre.")
+        if errors:
+            return errors
+        self.categories.add(Category(user_id=self.user_id, name=normalized_name, color=color))
+        try:
+            self.session.commit()
+        except IntegrityError:
+            self.session.rollback()
+            return ["Ya existe una categoría con ese nombre."]
+        return []
+
+    def update(self, category_id, name, color):
+        category = self.categories.get(category_id, self.user_id)
+        if category is None:
+            return ["No encontramos esa categoría."]
+        errors = validate_category(name, color)
+        normalized_name = name.strip() if name else ""
+        if not errors and self.categories.by_name(normalized_name, self.user_id, category.id):
+            errors.append("Ya existe una categoría con ese nombre.")
+        if errors:
+            return errors
+        category.name = normalized_name
+        category.color = color
+        try:
+            self.session.commit()
+        except IntegrityError:
+            self.session.rollback()
+            return ["Ya existe una categoría con ese nombre."]
+        return []
+
+    def delete(self, category_id):
+        category = self.categories.get(category_id, self.user_id)
+        if category is None:
+            return ["No encontramos esa categoría."]
+        if len(self.categories.all(self.user_id)) <= 1:
+            return ["Debes conservar al menos una categoría."]
+        if self.categories.in_use(category.id, self.user_id):
+            return ["Esta categoría tiene eventos. Cambia primero sus eventos a otra categoría."]
+        self.categories.delete(category)
+        self.session.commit()
+        return []
+
+
 def month_grid(year, month):
     return calendar.Calendar(firstweekday=0).monthdayscalendar(year, month)
 
 
 def seed_demo_data(session: Session, user_id: int):
+    categories = {
+        category.color: category
+        for category in session.scalars(select(Category).where(Category.user_id == user_id)).all()
+    }
+    for name, color in DEFAULT_CATEGORIES:
+        if color not in categories:
+            category = Category(user_id=user_id, name=name, color=color)
+            session.add(category)
+            categories[color] = category
+    session.flush()
+
     if session.scalar(select(Event.id).where(Event.user_id == user_id).limit(1)) is not None:
+        session.commit()
         return
 
     today = date.today()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     session.add_all(
         [
-            Event(user_id=user_id, title="Planificar la semana", event_date=today, start_time=time(9, 0), category="trabajo", reminder="15m"),
-            Event(user_id=user_id, title="Revisar avances del proyecto", event_date=today, start_time=time(11, 30), category="estudio", reminder="30m"),
-            Event(user_id=user_id, title="Pausa para caminar", event_date=today, start_time=time(16, 0), category="salud", reminder="at_time"),
-            Event(user_id=user_id, title="Entrega del proyecto", event_date=today + timedelta(days=2), start_time=time(10, 0), category="estudio", reminder="1d"),
-            Event(user_id=user_id, title="Café con Alex", event_date=today + timedelta(days=4), start_time=time(17, 30), category="personal", reminder="1h"),
+            Event(user_id=user_id, title="Planificar la semana", event_date=today, start_time=time(9, 0), category="trabajo", category_item=categories["work"], reminder="15m"),
+            Event(user_id=user_id, title="Revisar avances del proyecto", event_date=today, start_time=time(11, 30), category="estudio", category_item=categories["study"], reminder="30m"),
+            Event(user_id=user_id, title="Pausa para caminar", event_date=today, start_time=time(16, 0), category="salud", category_item=categories["health"], reminder="at_time"),
+            Event(user_id=user_id, title="Entrega del proyecto", event_date=today + timedelta(days=2), start_time=time(10, 0), category="estudio", category_item=categories["study"], reminder="1d"),
+            Event(user_id=user_id, title="Café con Alex", event_date=today + timedelta(days=4), start_time=time(17, 30), category="personal", category_item=categories["personal"], reminder="1h"),
         ]
     )
 

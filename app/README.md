@@ -53,6 +53,7 @@ python -m unittest discover -s tests -v
 - `planify/domain/`: entidades, validaciones y almacenamiento de contraseñas con hash scrypt de Werkzeug.
 - `planify/infrastructure/`: base SQLite, migración de datos existentes, repositorios y protección CSRF.
 - `planify/templates/` y `planify/static/`: interfaz adaptable en español, estilos y tema local.
+- Las categorías son entidades privadas de cada cuenta; los eventos existentes conservan su categoría durante la migración.
 
 Las notificaciones siguen siendo locales y de demostración. A futuro, `NotificationService` puede publicar eventos a un adaptador para extraer el envío y la programación a un microservicio. No se implementan correo ni notificaciones push reales.
 
@@ -63,8 +64,48 @@ Las notificaciones siguen siendo locales y de demostración. A futuro, `Notifica
 - Las sesiones usan cookies `HttpOnly` y `SameSite=Lax`; en producción se fuerzan cookies `Secure`.
 - Los formularios POST requieren token CSRF. Las rutas de acceso y registro tienen límites de intentos.
 - El registro es abierto: los visitantes pueden crear su propia cuenta. Los datos del planificador se filtran por el identificador de la sesión.
-- Google/GitHub OAuth y la recuperación por correo no están configurados; no se ofrecen como botones que aparenten funcionar. La pantalla de recuperación explica la limitación.
+- Google OAuth se integra con OpenID Connect. El botón explica la configuración pendiente y solo permite iniciar el flujo cuando hay credenciales OAuth locales.
+- El inicio de sesión con Google exige correo verificado; no se enlazan cuentas existentes automáticamente. Para enlazarlas, inicia sesión y conecta Google desde Ajustes usando el mismo correo.
+- El centro de notificaciones es local y de demostración. La preferencia de avisos controla el contador de elementos no leídos en Inicio; no se envían correos ni notificaciones push.
 - En instalaciones existentes, los datos antiguos sin propietario no se muestran ni se asignan a la primera cuenta que se registre.
+
+### Configurar el acceso con Google
+
+Google requiere un cliente OAuth de tipo **Aplicación web**. Los secretos son tuyos: no los compartas por chat y no los publiques en GitHub.
+
+1. En [Google Cloud Console](https://console.cloud.google.com/), crea o selecciona un proyecto y configura la pantalla de consentimiento OAuth. Para una prueba personal, selecciona el tipo externo y añade tu cuenta como usuario de prueba.
+2. En **Clientes**, crea un cliente OAuth de tipo **Aplicación web**. No hacen falta claves API ni otros permisos; Planify solo pide `openid`, `email` y `profile`.
+3. Añade estos orígenes autorizados:
+
+   ```text
+   http://127.0.0.1:5000
+   https://desktop-jlq5gpl.tail35211e.ts.net
+   ```
+
+4. Añade estos URI de redirección autorizados (deben coincidir exactamente):
+
+   ```text
+   http://127.0.0.1:5000/auth/google/callback
+   https://desktop-jlq5gpl.tail35211e.ts.net/auth/google/callback
+   ```
+
+   La dirección HTTPS corresponde al enlace temporal de Funnel de este equipo. Si el dominio cambia, actualiza el URI en Google Cloud. Para usar otro dominio local, registra también el origen y la ruta exactos.
+
+5. Copia el **ID de cliente** y el **secreto de cliente** en PowerShell, dentro de la misma terminal desde la que iniciarás Planify:
+
+   ```powershell
+   $env:GOOGLE_CLIENT_ID = "tu-id-de-cliente"
+   $env:GOOGLE_CLIENT_SECRET = "tu-secreto-de-cliente"
+   python app.py
+   ```
+
+   Deja `GOOGLE_REDIRECT_URI` sin definir: Planify detecta la dirección con la que se abrió la aplicación y usa la ruta `/auth/google/callback`. Así funcionan las dos direcciones de redirección anteriores. Si necesitas fijar una, define `GOOGLE_REDIRECT_URI` con una URL exacta registrada en Google Cloud.
+
+   Cierra y vuelve a iniciar Planify después de añadir o cambiar variables. Al usar Docker, pon las variables en tu archivo local `.env`, que está excluido de Git; nunca las pegues en `.env.example` ni en el repositorio.
+
+6. Abre el inicio de sesión y elige **Continuar con Google**. Si la pantalla de consentimiento está en modo de prueba, solo podrán ingresar las cuentas añadidas como usuarios de prueba.
+
+Authlib valida el estado OAuth y la firma, audiencia, emisor y nonce del ID token; la aplicación solo crea una cuenta si Google confirma el correo. Un correo que ya pertenezca a otra cuenta requiere iniciar sesión primero y conectar Google en Ajustes. Las cuentas creadas solo con Google pueden crear una contraseña desde Ajustes para habilitar el inicio por correo y contraseña.
 
 ## Hosting gratuito en PythonAnywhere
 
