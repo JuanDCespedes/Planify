@@ -5,6 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from planify.domain.models import Base
+from planify.infrastructure.migrations import migrate_sqlite_user_ownership
 
 
 def init_database(app):
@@ -15,13 +16,9 @@ def init_database(app):
 
     engine = create_engine(database_url, connect_args={"check_same_thread": False} if database_url.startswith("sqlite") else {})
     Base.metadata.create_all(engine)
+    migrate_sqlite_user_ownership(engine)
+    app.extensions["planify_engine"] = engine
     app.extensions["planify_session_factory"] = sessionmaker(bind=engine, expire_on_commit=False)
-
-    with app.app_context():
-        from planify.application.services import seed_demo_data
-
-        with sessionmaker(bind=engine, expire_on_commit=False)() as session:
-            seed_demo_data(session)
 
     @app.teardown_appcontext
     def close_session(_error=None):

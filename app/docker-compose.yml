@@ -1,0 +1,13 @@
+services:
+  planify:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - planify-data:/data
+    restart: unless-stopped
+
+volumes:
+  planify-data:

@@ -1,24 +1,26 @@
 # Planify
 
-Planify es una primera versión funcional de un planificador personal en español. Permite organizar eventos, consultar el calendario, crear bloques de rutina, gestionar notificaciones de demostración y cambiar entre tema claro y oscuro.
+Planify es una aplicación de planificación personal en español. Cada cuenta tiene sus propios eventos, calendario, bloques de rutina y notificaciones. La interfaz incluye un dashboard adaptable, tema oscuro guardado en el navegador y un acceso diseñado a partir de la referencia de inicio de sesión.
 
-## Requisitos
+## Ejecutar en Windows
+
+### Requisitos
 
 - Windows 10/11
 - Python 3.10 o posterior
-- Visual Studio Code (recomendado) y la extensión oficial de Python
+- Visual Studio Code y la extensión oficial de Python (recomendados)
 
-## Preparar y ejecutar en Windows
+### Instalación
 
 1. Abre `planify.code-workspace` en VS Code o abre esta carpeta.
-2. En la terminal integrada de PowerShell, crea y activa un entorno virtual:
+2. En la terminal integrada de PowerShell, crea y activa el entorno virtual:
 
    ```powershell
    py -m venv .venv
    .\.venv\Scripts\Activate.ps1
    ```
 
-   Si PowerShell bloquea la activación, permite scripts solo en la sesión actual con `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` y vuelve a activar el entorno.
+   Si PowerShell bloquea la activación, ejecuta `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` en esa misma terminal y vuelve a activar el entorno.
 
 3. Instala las dependencias:
 
@@ -26,15 +28,15 @@ Planify es una primera versión funcional de un planificador personal en españo
    python -m pip install -r requirements.txt
    ```
 
-4. Inicia el servidor local:
+4. Inicia Planify:
 
    ```powershell
    python app.py
    ```
 
-5. Abre la dirección que muestra Flask, normalmente `http://127.0.0.1:5000`.
+5. Visita [http://127.0.0.1:5000](http://127.0.0.1:5000), crea tu cuenta y entra al planificador.
 
-La base SQLite se crea automáticamente en `instance/planify.db` y se carga con eventos, bloques de rutina y notificaciones de ejemplo la primera vez. Para usar otra ubicación, configura `PLANIFY_DATABASE_URL` antes de iniciar la aplicación.
+La base SQLite se crea en `instance/planify.db`. Al registrarse, cada cuenta recibe sus propios datos de ejemplo; los cambios de otras cuentas no aparecen en su espacio.
 
 ## Pruebas
 
@@ -44,18 +46,42 @@ Con el entorno virtual activo:
 python -m unittest discover -s tests -v
 ```
 
-## Capas de la aplicación
+## Arquitectura
 
-- `planify/presentation/`: rutas Flask y vistas Jinja; valida entrada HTTP y coordina la respuesta.
-- `planify/application/`: servicios de casos de uso, consultas, operaciones y carga inicial de datos.
-- `planify/domain/`: entidades SQLAlchemy y reglas de validación reutilizables, sin dependencias de Flask.
-- `planify/infrastructure/`: conexión y sesiones de base de datos SQLite y repositorios de persistencia.
-- `planify/templates/` y `planify/static/`: interfaz adaptable, estilos y comportamiento del tema local.
+- `planify/presentation/`: rutas Flask, acceso, registro, sesiones y plantillas Jinja.
+- `planify/application/`: casos de uso y servicios de autenticación, agenda, rutina y notificaciones.
+- `planify/domain/`: entidades, validaciones y almacenamiento de contraseñas con hash scrypt de Werkzeug.
+- `planify/infrastructure/`: base SQLite, migración de datos existentes, repositorios y protección CSRF.
+- `planify/templates/` y `planify/static/`: interfaz adaptable en español, estilos y tema local.
 
-### Posible extracción de un microservicio de notificaciones
+Las notificaciones siguen siendo locales y de demostración. A futuro, `NotificationService` puede publicar eventos a un adaptador para extraer el envío y la programación a un microservicio. No se implementan correo ni notificaciones push reales.
 
-La funcionalidad actual de notificaciones es deliberadamente local y de demostración. Para una evolución futura, se puede extraer un servicio a partir de los casos de uso de `NotificationService` y del modelo `Notification`: definir primero un contrato de eventos (por ejemplo, evento creado o recordatorio vencido), publicar esos eventos desde la capa de aplicación mediante una interfaz y conectar un adaptador de mensajería como infraestructura. El nuevo servicio podría encargarse de programar y registrar avisos, mientras Planify conserva las preferencias y la experiencia de usuario. Las integraciones reales de correo o notificaciones push quedan fuera del alcance de esta versión.
+## Cuentas y seguridad
 
-## Alcance y seguridad
+- Cada cuenta usa una dirección de correo y una contraseña propia.
+- Las contraseñas se guardan únicamente como hashes scrypt, nunca como texto recuperable. El mínimo para crear una cuenta es de 12 caracteres.
+- Las sesiones usan cookies `HttpOnly` y `SameSite=Lax`; en producción se fuerzan cookies `Secure`.
+- Los formularios POST requieren token CSRF. Las rutas de acceso y registro tienen límites de intentos.
+- El registro es abierto: los visitantes pueden crear su propia cuenta. Los datos del planificador se filtran por el identificador de la sesión.
+- Google/GitHub OAuth y la recuperación por correo no están configurados; no se ofrecen como botones que aparenten funcionar. La pantalla de recuperación explica la limitación.
+- En instalaciones existentes, los datos antiguos sin propietario no se muestran ni se asignan a la primera cuenta que se registre.
 
-Esta entrega no incluye autenticación ni envíos reales de correo o push. `PLANIFY_SECRET_KEY` admite una clave de entorno para futuras sesiones; el valor de desarrollo incluido no debe reutilizarse en producción. No se almacenan contraseñas en esta versión.
+## Despliegue con Docker
+
+La SQLite de producción debe permanecer en un volumen persistente. La configuración `docker-compose.yml` incluida monta el volumen `planify-data` en `/data`.
+
+1. Copia el archivo de variables y crea una clave secreta aleatoria:
+
+   ```powershell
+   py -3 -c "import secrets; from pathlib import Path; Path('.env').write_text('PLANIFY_ENV=production\nPLANIFY_SECRET_KEY='+secrets.token_urlsafe(48)+'\nPLANIFY_DATABASE_URL=sqlite:////data/planify.db\nPLANIFY_RATE_LIMIT_STORAGE_URI=memory://\n', encoding='utf-8')"
+   ```
+
+2. Construye e inicia el servicio:
+
+   ```powershell
+   docker compose up --build -d
+   ```
+
+3. Abre [http://localhost:8000](http://localhost:8000). Para parar la aplicación, ejecuta `docker compose down`; el volumen persiste incluso después de parar el contenedor.
+
+No publiques `.env` ni reutilices la clave de ejemplo. Para alojar Planify en un proveedor externo, configura el equivalente a `PLANIFY_ENV=production`, define una clave secreta larga, y monta almacenamiento persistente en `/data`. Un disco temporal puede borrar SQLite cuando el proveedor reinicia o vuelve a desplegar la aplicación. Los límites de intentos predeterminados se guardan en memoria; para varias instancias, configura `PLANIFY_RATE_LIMIT_STORAGE_URI` con un almacén compartido compatible.

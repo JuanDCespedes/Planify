@@ -47,7 +47,7 @@
             </div>
             <div class="item-actions">
               <a class="small-action" href="{{ url_for('main.event_form', event_id=event.id) }}" aria-label="Editar {{ event.title }}">✎</a>
-              <form method="post" action="{{ url_for('main.delete_event', event_id=event.id) }}" data-confirm="¿Eliminar este evento?"><button class="small-action" type="submit" aria-label="Eliminar {{ event.title }}">×</button></form>
+              <form method="post" action="{{ url_for('main.delete_event', event_id=event.id) }}" data-confirm="¿Eliminar este evento?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action" type="submit" aria-label="Eliminar {{ event.title }}">×</button></form>
             </div>
           </article>
         {% endfor %}

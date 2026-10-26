@@ -34,10 +34,14 @@
       <div class="sidebar-bottom">
         <a class="nav-link {{ 'active' if request.endpoint == 'main.settings' else '' }}" href="{{ url_for('main.settings') }}"><span class="nav-icon">⚙</span> Ajustes</a>
         <div class="profile-card">
-          <div class="avatar">P</div>
-          <div><strong>Mi espacio</strong><span>Plan personal</span></div>
+          <div class="avatar">{{ current_user.email[0]|upper }}</div>
+          <div><strong>{{ current_user.email }}</strong><span>Cuenta personal</span></div>
           <span class="profile-dots">···</span>
         </div>
+        <form class="logout-form" method="post" action="{{ url_for('main.logout') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="nav-link logout-link" type="submit"><span class="nav-icon">↪</span> Cerrar sesión</button>
+        </form>
       </div>
     </aside>
 
@@ -47,7 +51,7 @@
         <div class="breadcrumb">Mi espacio <span>/</span> {% block breadcrumb %}Inicio{% endblock %}</div>
         <div class="topbar-actions">
           <a class="icon-button notification-shortcut" href="{{ url_for('main.notifications') }}" aria-label="Notificaciones">♧{% if unread_count|default(0) %}<i></i>{% endif %}</a>
-          <div class="top-avatar" aria-label="Perfil de Planify">P</div>
+          <div class="top-avatar" aria-label="{{ current_user.email }}">{{ current_user.email[0]|upper }}</div>
         </div>
       </header>
       <div class="content-wrap">

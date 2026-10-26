@@ -1,0 +1,30 @@
+{% extends "auth/base_auth.html" %}
+{% block title %}Iniciar sesión{% endblock %}
+{% block content %}
+<p class="auth-overline">PLANIFY</p>
+<h1 id="auth-title">Iniciar sesión</h1>
+<p class="auth-intro">Ingresa tus credenciales para acceder a tu planificador.</p>
+
+{% if errors %}
+  <div class="auth-errors" role="alert" aria-live="assertive">
+    {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+  </div>
+{% endif %}
+
+<form class="auth-form" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="next" value="{{ next_url }}">
+  <div class="field">
+    <label for="email">Correo electrónico</label>
+    <input id="email" name="email" type="email" maxlength="254" value="{{ email }}" placeholder="usuario@gmail.com" autocomplete="email" required autofocus>
+  </div>
+  <div class="field">
+    <label for="password">Contraseña</label>
+    <input id="password" name="password" type="password" maxlength="128" placeholder="Tu contraseña" autocomplete="current-password" required>
+  </div>
+  <div class="auth-forgot"><a href="{{ url_for('main.forgot_password') }}">¿Olvidaste tu contraseña?</a></div>
+  <button class="auth-submit" type="submit">Iniciar sesión</button>
+</form>
+
+<p class="auth-switch">¿No tienes cuenta? <a href="{{ url_for('main.register') }}">Regístrate</a></p>
+{% endblock %}

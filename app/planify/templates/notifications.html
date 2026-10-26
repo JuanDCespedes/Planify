@@ -4,7 +4,7 @@
 {% block content %}
 <section class="page-heading notifications-heading">
   <div><p class="eyebrow">AL DÍA, SIN AGOBIOS</p><h1>Tu centro de <span class="heading-accent">notificaciones.</span></h1><p class="subheading">Recordatorios útiles, justo cuando los necesitas.</p></div>
-  {% if unread_count %}<form method="post" action="{{ url_for('main.mark_all_notifications_read') }}"><button class="button button-secondary" type="submit">Marcar todo como leído</button></form>{% endif %}
+  {% if unread_count %}<form method="post" action="{{ url_for('main.mark_all_notifications_read') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button-secondary" type="submit">Marcar todo como leído</button></form>{% endif %}
 </section>
 <section class="panel notification-panel">
   <div class="panel-heading"><div><p class="eyebrow">RECIENTES</p><h2>Notificaciones <span class="heading-count">{{ notifications|length }}</span></h2></div><span class="unread-label"><i></i>{{ unread_count }} sin leer</span></div>
@@ -15,8 +15,8 @@
           <div class="notification-symbol">{{ "✦" if not item.is_read else "✓" }}</div>
           <div class="notification-content"><div class="notification-title-row"><h3>{{ item.title }}</h3>{% if not item.is_read %}<span class="new-badge">Nuevo</span>{% endif %}</div><p>{{ item.message }}</p><time datetime="{{ item.created_at.isoformat() }}">{{ item.created_at.strftime("%d/%m · %H:%M") }}</time></div>
           <div class="notification-actions">
-            {% if not item.is_read %}<form method="post" action="{{ url_for('main.mark_notification_read', notification_id=item.id) }}"><button class="text-button" type="submit">Marcar leída</button></form>{% endif %}
-            <form method="post" action="{{ url_for('main.dismiss_notification', notification_id=item.id) }}" data-confirm="¿Descartar esta notificación?"><button class="small-action" type="submit" aria-label="Descartar {{ item.title }}">×</button></form>
+            {% if not item.is_read %}<form method="post" action="{{ url_for('main.mark_notification_read', notification_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="text-button" type="submit">Marcar leída</button></form>{% endif %}
+            <form method="post" action="{{ url_for('main.dismiss_notification', notification_id=item.id) }}" data-confirm="¿Descartar esta notificación?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action" type="submit" aria-label="Descartar {{ item.title }}">×</button></form>
           </div>
         </article>
       {% endfor %}

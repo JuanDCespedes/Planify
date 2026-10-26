@@ -1,0 +1,33 @@
+{% extends "auth/base_auth.html" %}
+{% block title %}Crear cuenta{% endblock %}
+{% block content %}
+<p class="auth-overline">TU ESPACIO PERSONAL</p>
+<h1 id="auth-title">Crea tu cuenta</h1>
+<p class="auth-intro">Organiza tus planes en un espacio solo para ti.</p>
+
+{% if errors %}
+  <div class="auth-errors" role="alert" aria-live="assertive">
+    {% for error in errors %}<p>{{ error }}</p>{% endfor %}
+  </div>
+{% endif %}
+
+<form class="auth-form" method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="field">
+    <label for="email">Correo electrónico</label>
+    <input id="email" name="email" type="email" maxlength="254" value="{{ email }}" placeholder="usuario@gmail.com" autocomplete="email" required autofocus>
+  </div>
+  <div class="field">
+    <label for="password">Contraseña</label>
+    <input id="password" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" aria-describedby="password-hint" required>
+    <span class="auth-hint" id="password-hint">Usa al menos 12 caracteres.</span>
+  </div>
+  <div class="field">
+    <label for="password_confirmation">Confirma tu contraseña</label>
+    <input id="password_confirmation" name="password_confirmation" type="password" minlength="12" maxlength="128" autocomplete="new-password" required>
+  </div>
+  <button class="auth-submit" type="submit">Crear cuenta</button>
+</form>
+
+<p class="auth-switch">¿Ya tienes cuenta? <a href="{{ url_for('main.login') }}">Inicia sesión</a></p>
+{% endblock %}
