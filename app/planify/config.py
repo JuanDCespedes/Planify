@@ -7,6 +7,19 @@ class Config:
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
     GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
     GOOGLE_REDIRECT_URI = os.environ.get("GOOGLE_REDIRECT_URI", "")
+    VAPID_PUBLIC_KEY = os.environ.get("PLANIFY_VAPID_PUBLIC_KEY", "")
+    VAPID_PRIVATE_KEY = os.environ.get("PLANIFY_VAPID_PRIVATE_KEY", "")
+    VAPID_CLAIMS_EMAIL = os.environ.get("PLANIFY_VAPID_CLAIMS_EMAIL", "")
+    SMTP_HOST = os.environ.get("PLANIFY_SMTP_HOST", "")
+    SMTP_PORT = int(os.environ.get("PLANIFY_SMTP_PORT", "587"))
+    SMTP_USERNAME = os.environ.get("PLANIFY_SMTP_USERNAME", "")
+    SMTP_PASSWORD = os.environ.get("PLANIFY_SMTP_PASSWORD", "")
+    SMTP_FROM = os.environ.get("PLANIFY_SMTP_FROM", "")
+    SMTP_USE_SSL = os.environ.get("PLANIFY_SMTP_USE_SSL", "").casefold() == "true"
+    SMTP_STARTTLS = os.environ.get("PLANIFY_SMTP_STARTTLS", "true").casefold() == "true"
+    ENABLE_NOTIFICATION_SCHEDULER = os.environ.get(
+        "PLANIFY_ENABLE_NOTIFICATION_SCHEDULER", "true"
+    ).casefold() == "true"
     ENVIRONMENT = os.environ.get("PLANIFY_ENV", "development").casefold()
     DEBUG = os.environ.get("PLANIFY_DEBUG", "").casefold() == "true"
     MAX_CONTENT_LENGTH = 16 * 1024

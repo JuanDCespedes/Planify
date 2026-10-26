@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask
 from authlib.integrations.flask_client import OAuth
 from flask_login import LoginManager
@@ -45,6 +47,15 @@ def create_app(config_object=Config):
     app.extensions["planify_oauth"] = oauth
     app.register_blueprint(main)
     init_database(app)
+    is_debug_reloader_parent = app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
+    if (
+        app.config.get("ENABLE_NOTIFICATION_SCHEDULER")
+        and not app.config.get("TESTING")
+        and not is_debug_reloader_parent
+    ):
+        from planify.infrastructure.notification_scheduler import start_notification_scheduler
+
+        app.extensions["planify_notification_scheduler"] = start_notification_scheduler(app)
     register_security_handlers(app)
     return app
 

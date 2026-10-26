@@ -1,3 +1,5 @@
+import base64
+import binascii
 import calendar
 import secrets
 import time as clock
@@ -5,11 +7,23 @@ from datetime import date, time, timedelta
 from urllib.parse import urlsplit
 
 from authlib.integrations.base_client.errors import OAuthError
-from flask import Blueprint, current_app, flash, redirect, render_template, request, session, url_for
+from flask import (
+    Blueprint,
+    current_app,
+    flash,
+    jsonify,
+    make_response,
+    redirect,
+    render_template,
+    request,
+    send_from_directory,
+    session,
+    url_for,
+)
 from flask_login import current_user, login_user, logout_user
 from joserfc.errors import JoseError
 from requests.exceptions import RequestException
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash
 
@@ -27,10 +41,11 @@ from planify.application.services import (
     RoutineService,
     month_grid,
 )
-from planify.domain.models import Category, Event, Notification, RoutineBlock
+from planify.domain.models import Category, Event, Notification, PushSubscription, RoutineBlock
 from planify.extensions import limiter
-from planify.domain.rules import CATEGORY_COLORS, REMINDERS
+from planify.domain.rules import CATEGORY_COLORS, REMINDER_PREFERENCE_FIELDS, REMINDERS
 from planify.infrastructure.database import get_session
+from planify.infrastructure.notification_delivery import push_is_configured
 from planify.infrastructure.repositories import UserRepository
 
 
@@ -77,6 +92,50 @@ def safe_redirect_target(target):
     return None
 
 
+def valid_push_endpoint(endpoint):
+    try:
+        parsed = urlsplit(endpoint)
+        port = parsed.port
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").casefold()
+    trusted_host = (
+        host in {
+            "fcm.googleapis.com",
+            "web.push.apple.com",
+            "push.services.mozilla.com",
+            "updates.push.services.mozilla.com",
+        }
+        or host == "notify.windows.com"
+        or host.endswith(".push.services.mozilla.com")
+        or host.endswith(".notify.windows.com")
+    )
+    return (
+        parsed.scheme == "https"
+        and port in (None, 443)
+        and not parsed.username
+        and not parsed.password
+        and trusted_host
+    )
+
+
+def valid_push_keys(p256dh, auth):
+    try:
+        decoded_p256dh = base64.b64decode(
+            p256dh + "=" * ((4 - len(p256dh) % 4) % 4),
+            altchars=b"-_",
+            validate=True,
+        )
+        decoded_auth = base64.b64decode(
+            auth + "=" * ((4 - len(auth) % 4) % 4),
+            altchars=b"-_",
+            validate=True,
+        )
+    except (binascii.Error, ValueError):
+        return False
+    return len(decoded_p256dh) == 65 and decoded_p256dh[0] == 4 and len(decoded_auth) == 16
+
+
 @main.route("/login", methods=["GET", "POST"])
 @limiter.limit("10 per minute")
 def login():
@@ -102,6 +161,10 @@ def login():
         google_configured=bool(
             current_app.config.get("GOOGLE_CLIENT_ID")
             and current_app.config.get("GOOGLE_CLIENT_SECRET")
+        ),
+        push_configured=push_is_configured(current_app.config),
+        smtp_configured=bool(
+            current_app.config.get("SMTP_HOST") and current_app.config.get("SMTP_FROM")
         ),
     )
 
@@ -351,7 +414,14 @@ def event_form(event_id=None):
         values=values,
         errors=errors,
         categories=categories,
-        reminders=REMINDERS,
+        reminders=(
+            {
+                key: label
+                for key, label in REMINDERS.items()
+                if getattr(current_user, REMINDER_PREFERENCE_FIELDS[key])
+                or (event.id and event.reminder == key)
+            }
+        ),
     ), (400 if errors else 200)
 
 
@@ -411,6 +481,139 @@ def notifications():
     )
 
 
+@main.route("/api/notifications")
+def poll_notifications():
+    db_session = get_session()
+    user = UserRepository(db_session).by_id(current_user.id)
+    latest_id = db_session.scalar(
+        select(Notification.id)
+        .where(Notification.user_id == user.id)
+        .order_by(Notification.id.desc())
+        .limit(1)
+    ) or 0
+    if not user.in_app_notifications:
+        return jsonify({"notifications": [], "latest_id": latest_id})
+
+    after_value = request.args.get("after")
+    if after_value is None:
+        return jsonify({"notifications": [], "latest_id": latest_id})
+    try:
+        after_id = max(0, int(after_value))
+    except ValueError:
+        return jsonify({"error": "El identificador de notificación no es válido."}), 400
+
+    notifications = db_session.scalars(
+        select(Notification)
+        .where(
+            Notification.user_id == user.id,
+            Notification.id > after_id,
+        )
+        .order_by(Notification.id)
+        .limit(10)
+    ).all()
+    return jsonify(
+        {
+            "notifications": [
+                {
+                    "id": item.id,
+                    "title": item.title,
+                    "message": item.message,
+                    "type": item.notification_type,
+                    "sound_enabled": (
+                        item.notification_type == "routine"
+                        and user.routine_notification_sounds
+                    ),
+                }
+                for item in notifications
+            ],
+            "latest_id": latest_id,
+        }
+    )
+
+
+@main.route("/api/notifications/push-key")
+def push_public_key():
+    if not push_is_configured(current_app.config):
+        return jsonify({"configured": False}), 503
+    return jsonify(
+        {
+            "configured": True,
+            "public_key": current_app.config["VAPID_PUBLIC_KEY"],
+        }
+    )
+
+
+@main.route("/api/notifications/push-subscription", methods=["POST"])
+def save_push_subscription():
+    db_session = get_session()
+    user = UserRepository(db_session).by_id(current_user.id)
+    if not user.desktop_push_notifications:
+        return jsonify({"error": "Activa primero las notificaciones push en Ajustes."}), 409
+    if not push_is_configured(current_app.config):
+        return jsonify({"error": "Las notificaciones push no están configuradas en este servidor."}), 503
+
+    payload = request.get_json(silent=True)
+    subscription = payload.get("subscription") if isinstance(payload, dict) else None
+    if not isinstance(subscription, dict):
+        return jsonify({"error": "La suscripción del navegador no es válida."}), 400
+    endpoint = subscription.get("endpoint")
+    keys = subscription.get("keys")
+    if (
+        not isinstance(endpoint, str)
+        or len(endpoint) > 4096
+        or not valid_push_endpoint(endpoint)
+        or not isinstance(keys, dict)
+        or not isinstance(keys.get("p256dh"), str)
+        or not isinstance(keys.get("auth"), str)
+        or len(keys["p256dh"]) > 255
+        or len(keys["auth"]) > 255
+        or not valid_push_keys(keys["p256dh"], keys["auth"])
+    ):
+        return jsonify({"error": "La suscripción del navegador contiene datos no válidos."}), 400
+
+    existing = db_session.scalar(
+        select(PushSubscription).where(PushSubscription.endpoint == endpoint)
+    )
+    if existing and existing.user_id != user.id:
+        return jsonify({"error": "Este navegador ya está vinculado a otra cuenta."}), 409
+    if existing is None:
+        existing = PushSubscription(user_id=user.id, endpoint=endpoint)
+        db_session.add(existing)
+    existing.p256dh = keys["p256dh"]
+    existing.auth = keys["auth"]
+    db_session.commit()
+    return jsonify({"saved": True})
+
+
+@main.route("/api/notifications/push-subscription", methods=["DELETE"])
+def delete_push_subscription():
+    payload = request.get_json(silent=True)
+    endpoint = payload.get("endpoint") if isinstance(payload, dict) else None
+    if not isinstance(endpoint, str):
+        return jsonify({"error": "Indica la suscripción que quieres quitar."}), 400
+    db_session = get_session()
+    subscription = db_session.scalar(
+        select(PushSubscription).where(
+            PushSubscription.user_id == current_user.id,
+            PushSubscription.endpoint == endpoint,
+        )
+    )
+    if subscription is not None:
+        db_session.delete(subscription)
+        db_session.commit()
+    return jsonify({"removed": True})
+
+
+@main.route("/service-worker.js")
+def service_worker():
+    response = make_response(
+        send_from_directory(current_app.static_folder, "service-worker.js")
+    )
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 @main.route("/notifications/<int:notification_id>/read", methods=["POST"])
 def mark_notification_read(notification_id):
     service = NotificationService(get_session(), current_user.id)
@@ -448,6 +651,12 @@ def settings():
         categories=CategoryService(get_session(), current_user.id).list_all(),
         category_colors=CATEGORY_COLORS,
         reminders=REMINDERS,
+        enabled_reminders={
+            key: label
+            for key, label in REMINDERS.items()
+            if getattr(current_user, REMINDER_PREFERENCE_FIELDS[key])
+        },
+        reminder_preference_fields=REMINDER_PREFERENCE_FIELDS,
         google_configured=bool(
             current_app.config.get("GOOGLE_CLIENT_ID")
             and current_app.config.get("GOOGLE_CLIENT_SECRET")
@@ -525,15 +734,75 @@ def update_password():
 
 @main.route("/settings/preferences", methods=["POST"])
 def update_preferences():
+    db_session = get_session()
+    user = UserRepository(db_session).by_id(current_user.id)
     reminder = request.form.get("default_reminder", "")
-    if reminder not in REMINDERS:
+    if reminder not in REMINDERS or not getattr(
+        user, REMINDER_PREFERENCE_FIELDS.get(reminder, "")
+    ):
         flash("Selecciona un recordatorio predeterminado válido.", "error")
+        return redirect(url_for("main.settings"))
+
+    for field_name in REMINDER_PREFERENCE_FIELDS.values():
+        setattr(user, field_name, request.form.get(field_name) == "on")
+    enabled_reminders = [
+        key for key, field_name in REMINDER_PREFERENCE_FIELDS.items()
+        if getattr(user, field_name)
+    ]
+    if not enabled_reminders:
+        db_session.rollback()
+        flash("Mantén activo al menos un tipo de recordatorio.", "error")
+        return redirect(url_for("main.settings"))
+    if reminder not in enabled_reminders:
+        user.default_reminder = enabled_reminders[0]
+    else:
+        user.default_reminder = reminder
+
+    for field_name in (
+        "routine_notify_start",
+        "routine_notify_5_minutes",
+        "routine_notification_sounds",
+        "desktop_push_notifications",
+        "weekly_email_summaries",
+        "in_app_notifications",
+    ):
+        setattr(user, field_name, request.form.get(field_name) == "on")
+
+    quiet_start = request.form.get("quiet_hours_start", "")
+    quiet_end = request.form.get("quiet_hours_end", "")
+    try:
+        parsed_quiet_start = time.fromisoformat(quiet_start)
+        parsed_quiet_end = time.fromisoformat(quiet_end)
+    except ValueError:
+        db_session.rollback()
+        flash("Selecciona horas válidas para No molestar.", "error")
+        return redirect(url_for("main.settings"))
+
+    user.quiet_hours_enabled = request.form.get("quiet_hours_enabled") == "on"
+    if user.quiet_hours_enabled and parsed_quiet_start == parsed_quiet_end:
+        db_session.rollback()
+        flash("La hora de inicio y la hora de fin de No molestar deben ser diferentes.", "error")
+        return redirect(url_for("main.settings"))
+    user.quiet_hours_start = parsed_quiet_start.strftime("%H:%M")
+    user.quiet_hours_end = parsed_quiet_end.strftime("%H:%M")
+    db_session.commit()
+    flash("La configuración de notificaciones se guardó.", "success")
+    return redirect(url_for("main.settings"))
+
+
+@main.route("/settings/default-reminder", methods=["POST"])
+def update_default_reminder():
+    reminder = request.form.get("default_reminder", "")
+    if (
+        reminder not in REMINDERS
+        or not getattr(current_user, REMINDER_PREFERENCE_FIELDS.get(reminder, ""))
+    ):
+        flash("Selecciona un recordatorio predeterminado que esté activo.", "error")
         return redirect(url_for("main.settings"))
     user = UserRepository(get_session()).by_id(current_user.id)
     user.default_reminder = reminder
-    user.in_app_notifications = request.form.get("in_app_notifications") == "on"
     get_session().commit()
-    flash("Tus preferencias se guardaron.", "success")
+    flash("Tu recordatorio predeterminado se actualizó.", "success")
     return redirect(url_for("main.settings"))
 
 
@@ -599,6 +868,7 @@ def delete_account():
     db_session.execute(delete(Event).where(Event.user_id == user_id))
     db_session.execute(delete(RoutineBlock).where(RoutineBlock.user_id == user_id))
     db_session.execute(delete(Notification).where(Notification.user_id == user_id))
+    db_session.execute(delete(PushSubscription).where(PushSubscription.user_id == user_id))
     db_session.execute(delete(Category).where(Category.user_id == user_id))
     db_session.delete(user)
     db_session.commit()

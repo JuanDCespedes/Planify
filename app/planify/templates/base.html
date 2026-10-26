@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f7f8fc">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}Planify{% endblock %} · Planify</title>
   <script>
     try {
@@ -15,7 +16,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
   <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
 </head>
-<body>
+<body class="{{ 'settings-theme' if request.endpoint == 'main.settings' else '' }}">
   <div class="app-shell">
     <aside class="sidebar" id="sidebar">
       <a class="brand" href="{{ url_for('main.dashboard') }}" aria-label="Planify, inicio">

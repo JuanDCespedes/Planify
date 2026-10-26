@@ -6,7 +6,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from planify.domain.models import Category, Event, Notification, RoutineBlock, User
-from planify.domain.rules import DEFAULT_CATEGORIES, validate_category, validate_event, validate_routine_block
+from planify.domain.rules import (
+    DEFAULT_CATEGORIES,
+    REMINDER_PREFERENCE_FIELDS,
+    validate_category,
+    validate_event,
+    validate_routine_block,
+)
 from planify.infrastructure.repositories import CategoryRepository, EventRepository, NotificationRepository, RoutineRepository
 
 
@@ -27,6 +33,14 @@ class EventService:
         category_item = self.events.session.get(Category, category) if isinstance(category, int) else None
         if category_item is None or category_item.user_id != self.user_id:
             errors.append("Selecciona una categoría de tu cuenta.")
+        reminder_preference = REMINDER_PREFERENCE_FIELDS.get(reminder)
+        user = self.session.get(User, self.user_id)
+        if (
+            reminder_preference
+            and not getattr(user, reminder_preference)
+            and not (event.id and event.reminder == reminder)
+        ):
+            errors.append("Ese recordatorio está desactivado en tu configuración.")
         if errors:
             return errors
         event.title = title.strip()

@@ -1,6 +1,6 @@
 # Planify
 
-Planify es una aplicación de planificación personal en español. Cada cuenta tiene sus propios eventos, calendario, bloques de rutina y notificaciones. La interfaz incluye un dashboard adaptable, tema oscuro guardado en el navegador y un acceso diseñado a partir de la referencia de inicio de sesión.
+Planify es una aplicación de planificación personal en español. Cada cuenta tiene sus propios eventos, calendario, bloques de rutina y notificaciones. La interfaz adaptable usa los detalles coral/naranja del prototipo de acceso y configuración; el tema oscuro se guarda en el navegador.
 
 ## Ejecutar en Windows
 
@@ -55,7 +55,21 @@ python -m unittest discover -s tests -v
 - `planify/templates/` y `planify/static/`: interfaz adaptable en español, estilos y tema local.
 - Las categorías son entidades privadas de cada cuenta; los eventos existentes conservan su categoría durante la migración.
 
-Las notificaciones siguen siendo locales y de demostración. A futuro, `NotificationService` puede publicar eventos a un adaptador para extraer el envío y la programación a un microservicio. No se implementan correo ni notificaciones push reales.
+La configuración de notificaciones guarda por cuenta los recordatorios habilitados, los avisos de rutina, las horas de silencio y las preferencias de entrega. Un planificador revisa los avisos cada minuto y los guarda en SQLite con claves de deduplicación. Las horas silenciosas retrasan los avisos hasta el fin del intervalo.
+
+Los avisos del navegador requieren permiso y Planify abierto; el sonido de rutina solo puede reproducirse mientras la aplicación está abierta y el navegador lo permite. Las notificaciones push en segundo plano son opcionales y requieren claves VAPID y una suscripción concedida por cada navegador. Los resúmenes por correo se envían los lunes después de las 09:00 (hora local del servidor) y requieren SMTP. Si esas credenciales no están configuradas, Planify muestra que el canal sigue desactivado; no se guardan secretos en SQLite.
+
+Para activar push, genera el par VAPID dentro del entorno virtual:
+
+```powershell
+python -c "from planify.infrastructure.notification_delivery import generate_vapid_keys; print(*generate_vapid_keys(), sep='\n')"
+```
+
+La primera línea es la clave privada y la segunda la pública. Guárdalas solo en variables de entorno locales, junto con `PLANIFY_VAPID_CLAIMS_EMAIL=mailto:tu-correo@example.com`. Reinicia Planify, activa y guarda la opción push en Ajustes y luego pulsa **Activar en este navegador**. La aplicación requiere HTTPS (excepto `localhost`) para service workers y push.
+
+Para correo, configura `PLANIFY_SMTP_HOST`, `PLANIFY_SMTP_PORT`, `PLANIFY_SMTP_FROM` y, si el proveedor los exige, `PLANIFY_SMTP_USERNAME` y `PLANIFY_SMTP_PASSWORD`. Usa `PLANIFY_SMTP_USE_SSL=true` para SSL directo; de lo contrario se usa STARTTLS cuando `PLANIFY_SMTP_STARTTLS=true`. Las variables deben establecerse en la terminal antes de iniciar Planify. Nunca publiques credenciales.
+
+El planificador integrado está pensado para una sola instancia del proceso web. En despliegues con varios workers, desactívalo con `PLANIFY_ENABLE_NOTIFICATION_SCHEDULER=false` y ejecuta un único proceso scheduler dedicado para evitar tareas de correo duplicadas. Para extraerlo más adelante, `process_due_notifications` es el punto de entrada independiente de Flask y `NotificationService` puede publicar eventos a un adaptador o cola de microservicio.
 
 ## Cuentas y seguridad
 
@@ -66,7 +80,7 @@ Las notificaciones siguen siendo locales y de demostración. A futuro, `Notifica
 - El registro es abierto: los visitantes pueden crear su propia cuenta. Los datos del planificador se filtran por el identificador de la sesión.
 - Google OAuth se integra con OpenID Connect. El botón explica la configuración pendiente y solo permite iniciar el flujo cuando hay credenciales OAuth locales.
 - El inicio de sesión con Google exige correo verificado; no se enlazan cuentas existentes automáticamente. Para enlazarlas, inicia sesión y conecta Google desde Ajustes usando el mismo correo.
-- El centro de notificaciones es local y de demostración. La preferencia de avisos controla el contador de elementos no leídos en Inicio; no se envían correos ni notificaciones push.
+- Los recordatorios y notificaciones son privados por cuenta; push y SMTP son canales opcionales configurados por el administrador.
 - En instalaciones existentes, los datos antiguos sin propietario no se muestran ni se asignan a la primera cuenta que se registre.
 
 ### Configurar el acceso con Google

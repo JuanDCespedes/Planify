@@ -25,6 +25,15 @@ REMINDERS = {
     "1d": "1 día antes",
 }
 
+REMINDER_PREFERENCE_FIELDS = {
+    "at_time": "reminder_at_event_enabled",
+    "5m": "reminder_5_minutes_enabled",
+    "15m": "reminder_15_minutes_enabled",
+    "30m": "reminder_30_minutes_enabled",
+    "1h": "reminder_1_hour_enabled",
+    "1d": "reminder_1_day_enabled",
+}
+
 
 def validate_category(name, color):
     errors = []

@@ -1,6 +1,8 @@
+import base64
 import sqlite3
 import tempfile
 import unittest
+from datetime import date, datetime, time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,8 +10,9 @@ from sqlalchemy import select
 from werkzeug.security import check_password_hash
 
 from planify import create_app
-from planify.domain.models import Category, Event, Notification, User
+from planify.domain.models import Category, Event, Notification, PushSubscription, RoutineBlock, User
 from planify.infrastructure.database import get_session
+from planify.infrastructure.notification_scheduler import process_due_notifications
 
 
 class TestConfig:
@@ -23,6 +26,12 @@ class TestConfig:
 class GoogleTestConfig(TestConfig):
     GOOGLE_CLIENT_ID = "test-client-id"
     GOOGLE_CLIENT_SECRET = "test-client-secret"
+
+
+class PushTestConfig(TestConfig):
+    VAPID_PUBLIC_KEY = "public-test-key"
+    VAPID_PRIVATE_KEY = "private-test-key"
+    VAPID_CLAIMS_EMAIL = "mailto:test@example.com"
 
 
 class PlanifyRoutesTest(unittest.TestCase):
@@ -151,11 +160,178 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.register(other_client, "luis@example.com", "otra-clave-segura-456")
         other_notifications = other_client.get("/notifications").data
         self.assertNotIn(b"Aviso privado de Ana", other_notifications)
+        polled_notifications = other_client.get("/api/notifications?after=0").json
+        self.assertNotIn(
+            "Aviso privado de Ana",
+            " ".join(item["message"] for item in polled_notifications["notifications"]),
+        )
         other_client.post(f"/notifications/{notification_id}/dismiss")
 
         with self.app.app_context():
             notification = get_session().get(Notification, notification_id)
             self.assertIsNotNone(notification)
+
+    def test_event_notifications_are_scheduled_once_after_quiet_hours(self):
+        self.register(self.client)
+        with self.app.app_context():
+            db_session = get_session()
+            user = db_session.scalar(select(User).where(User.email == "ana@example.com"))
+            user.quiet_hours_enabled = True
+            event = Event(
+                user_id=user.id,
+                title="Evento nocturno",
+                event_date=date(2026, 5, 11),
+                start_time=time(23, 0),
+                category="personal",
+                reminder="at_time",
+            )
+            db_session.add(event)
+            db_session.commit()
+
+            process_due_notifications(
+                db_session,
+                now=datetime(2026, 5, 11, 23, 0),
+                config={},
+            )
+            self.assertIsNone(
+                db_session.scalar(
+                    select(Notification.id).where(
+                        Notification.dedupe_key == f"event:{event.id}:at_time"
+                    )
+                )
+            )
+
+            process_due_notifications(
+                db_session,
+                now=datetime(2026, 5, 12, 6, 0),
+                config={},
+            )
+            process_due_notifications(
+                db_session,
+                now=datetime(2026, 5, 12, 6, 1),
+                config={},
+            )
+            matching = db_session.scalars(
+                select(Notification).where(
+                    Notification.dedupe_key == f"event:{event.id}:at_time"
+                )
+            ).all()
+            self.assertEqual(len(matching), 1)
+            self.assertEqual(matching[0].user_id, user.id)
+
+    def test_routine_reminder_uses_user_preferences(self):
+        self.register(self.client)
+        with self.app.app_context():
+            db_session = get_session()
+            user = db_session.scalar(select(User).where(User.email == "ana@example.com"))
+            user.quiet_hours_enabled = False
+            user.routine_notify_start = False
+            user.routine_notify_5_minutes = True
+            block = RoutineBlock(
+                user_id=user.id,
+                title="Estudiar",
+                start_time=time(9, 30),
+                duration_minutes=60,
+                day_of_week=0,
+            )
+            db_session.add(block)
+            db_session.commit()
+
+            process_due_notifications(
+                db_session,
+                now=datetime(2026, 5, 11, 9, 25),
+                config={},
+            )
+
+            notification = db_session.scalar(
+                select(Notification).where(
+                    Notification.dedupe_key
+                    == f"routine:{block.id}:2026-05-11:5m"
+                )
+            )
+            self.assertIsNotNone(notification)
+            self.assertEqual(notification.message, "Estudiar empieza en 5 minutos.")
+
+    def test_weekly_digest_runs_after_nine_and_is_deduplicated(self):
+        self.register(self.client)
+        with self.app.app_context():
+            db_session = get_session()
+            user = db_session.scalar(select(User).where(User.email == "ana@example.com"))
+            user.weekly_email_summaries = True
+            user.quiet_hours_enabled = False
+            db_session.commit()
+            mail_config = {"SMTP_HOST": "smtp.example.com", "SMTP_FROM": "planify@example.com"}
+
+            with patch(
+                "planify.infrastructure.notification_scheduler.send_weekly_digest",
+                return_value=True,
+            ) as send_digest:
+                process_due_notifications(
+                    db_session,
+                    now=datetime(2026, 5, 11, 8, 59),
+                    config=mail_config,
+                )
+                self.assertEqual(send_digest.call_count, 0)
+                process_due_notifications(
+                    db_session,
+                    now=datetime(2026, 5, 11, 9, 0),
+                    config=mail_config,
+                )
+                process_due_notifications(
+                    db_session,
+                    now=datetime(2026, 5, 11, 9, 1),
+                    config=mail_config,
+                )
+                self.assertEqual(send_digest.call_count, 1)
+            self.assertEqual(user.last_weekly_digest_key, "2026-W20")
+
+    def test_push_subscription_is_owned_and_browser_service_worker_is_available(self):
+        app = create_app(PushTestConfig)
+        try:
+            client = app.test_client()
+            self.register(client, "ana@example.com")
+            public_key = client.get("/api/notifications/push-key")
+            self.assertEqual(public_key.status_code, 200)
+            self.assertEqual(public_key.json["public_key"], "public-test-key")
+
+            subscription = {
+                "endpoint": "https://fcm.googleapis.com/fcm/send/test-endpoint",
+                "keys": {
+                    "p256dh": base64.urlsafe_b64encode(b"\x04" + b"a" * 64).decode().rstrip("="),
+                    "auth": base64.urlsafe_b64encode(b"b" * 16).decode().rstrip("="),
+                },
+            }
+            response = client.post(
+                "/api/notifications/push-subscription",
+                json={"subscription": subscription},
+            )
+            self.assertEqual(response.status_code, 200)
+            invalid_endpoint = {
+                **subscription,
+                "endpoint": "https://127.0.0.1/private-resource",
+            }
+            rejected = client.post(
+                "/api/notifications/push-subscription",
+                json={"subscription": invalid_endpoint},
+            )
+            self.assertEqual(rejected.status_code, 400)
+
+            other_client = app.test_client()
+            self.register(other_client, "luis@example.com", "otra-clave-segura-456")
+            conflict = other_client.post(
+                "/api/notifications/push-subscription",
+                json={"subscription": subscription},
+            )
+            self.assertEqual(conflict.status_code, 409)
+            with app.app_context():
+                saved = get_session().scalar(select(PushSubscription))
+                self.assertEqual(saved.user_id, 1)
+            worker = client.get("/service-worker.js")
+            self.assertEqual(worker.status_code, 200)
+            self.assertEqual(worker.headers["Service-Worker-Allowed"], "/")
+            worker.close()
+        finally:
+            app.extensions["planify_engine"].dispose()
 
     def test_create_edit_delete_event_and_account_features(self):
         self.register(self.client)
@@ -197,7 +373,7 @@ class PlanifyRoutesTest(unittest.TestCase):
                 "event_date": "2030-04-11",
                 "start_time": "15:00",
                 "category": str(personal_category_id),
-                "reminder": "1h",
+                "reminder": "30m",
             },
             follow_redirects=True,
         )
@@ -329,7 +505,20 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertEqual(profile.status_code, 302)
         preferences = self.client.post(
             "/settings/preferences",
-            data={"default_reminder": "1d"},
+            data={
+                "default_reminder": "1d",
+                "reminder_at_event_enabled": "on",
+                "reminder_5_minutes_enabled": "on",
+                "reminder_15_minutes_enabled": "on",
+                "reminder_30_minutes_enabled": "on",
+                "reminder_1_hour_enabled": "on",
+                "reminder_1_day_enabled": "on",
+                "routine_notify_start": "on",
+                "desktop_push_notifications": "on",
+                "quiet_hours_enabled": "on",
+                "quiet_hours_start": "23:00",
+                "quiet_hours_end": "07:00",
+            },
         )
         self.assertEqual(preferences.status_code, 302)
         password = self.client.post(
@@ -347,6 +536,12 @@ class PlanifyRoutesTest(unittest.TestCase):
             self.assertEqual(user.display_name, "Ana")
             self.assertEqual(user.default_reminder, "1d")
             self.assertFalse(user.in_app_notifications)
+            self.assertTrue(user.reminder_5_minutes_enabled)
+            self.assertTrue(user.routine_notify_start)
+            self.assertTrue(user.desktop_push_notifications)
+            self.assertTrue(user.quiet_hours_enabled)
+            self.assertEqual(user.quiet_hours_start, "23:00")
+            self.assertEqual(user.quiet_hours_end, "07:00")
             self.assertTrue(user.check_password("una-clave-nueva-789"))
 
         self.client.post("/logout")
@@ -355,6 +550,79 @@ class PlanifyRoutesTest(unittest.TestCase):
             data={"email": "ana.nueva@example.com", "password": "una-clave-nueva-789"},
         )
         self.assertEqual(login.status_code, 302)
+
+    def test_notification_settings_require_a_reminder_and_valid_quiet_hours(self):
+        self.register(self.client)
+        no_reminders = self.client.post(
+            "/settings/preferences",
+            data={"default_reminder": "15m", "quiet_hours_start": "22:00", "quiet_hours_end": "06:00"},
+            follow_redirects=True,
+        )
+        self.assertIn("Mantén activo al menos un tipo de recordatorio".encode(), no_reminders.data)
+        with self.app.app_context():
+            user = get_session().scalar(select(User).where(User.email == "ana@example.com"))
+            self.assertTrue(user.reminder_15_minutes_enabled)
+
+        equal_quiet_hours = self.client.post(
+            "/settings/preferences",
+            data={
+                "default_reminder": "15m",
+                "reminder_15_minutes_enabled": "on",
+                "quiet_hours_enabled": "on",
+                "quiet_hours_start": "22:00",
+                "quiet_hours_end": "22:00",
+            },
+            follow_redirects=True,
+        )
+        self.assertIn("deben ser diferentes".encode(), equal_quiet_hours.data)
+        with self.app.app_context():
+            user = get_session().scalar(select(User).where(User.email == "ana@example.com"))
+            self.assertTrue(user.quiet_hours_enabled)
+            self.assertEqual(user.quiet_hours_start, "22:00")
+
+    def test_event_reminder_preferences_are_applied_when_creating_events(self):
+        self.register(self.client)
+        with self.app.app_context():
+            category_id = get_session().scalar(select(Category.id).where(Category.color == "work"))
+        self.client.post(
+            "/settings/preferences",
+            data={
+                "default_reminder": "15m",
+                "reminder_15_minutes_enabled": "on",
+                "quiet_hours_start": "22:00",
+                "quiet_hours_end": "06:00",
+            },
+        )
+        unavailable_reminder = self.client.post(
+            "/events/new",
+            data={
+                "title": "Reunión",
+                "event_date": "2030-04-10",
+                "start_time": "14:30",
+                "category": str(category_id),
+                "reminder": "1d",
+            },
+        )
+        self.assertEqual(unavailable_reminder.status_code, 400)
+        self.assertIn("desactivado en tu configuración".encode(), unavailable_reminder.data)
+
+    def test_default_reminder_setting_accepts_only_enabled_options(self):
+        self.register(self.client)
+        saved = self.client.post(
+            "/settings/default-reminder",
+            data={"default_reminder": "1d"},
+            follow_redirects=True,
+        )
+        self.assertIn("recordatorio predeterminado se actualizó".encode(), saved.data)
+        rejected = self.client.post(
+            "/settings/default-reminder",
+            data={"default_reminder": "5m"},
+            follow_redirects=True,
+        )
+        self.assertIn("que esté activo".encode(), rejected.data)
+        with self.app.app_context():
+            user = get_session().scalar(select(User).where(User.email == "ana@example.com"))
+            self.assertEqual(user.default_reminder, "1d")
 
     def test_account_deletion_requires_confirmation_and_removes_owned_data(self):
         self.register(self.client)
@@ -624,6 +892,12 @@ class PlanifyRoutesTest(unittest.TestCase):
                 self.assertEqual(event.user_id, 7)
                 self.assertEqual(event.category_item.name, "Personal")
                 self.assertEqual(event.category_item.user_id, user.id)
+                self.assertTrue(user.reminder_at_event_enabled)
+                self.assertFalse(user.reminder_5_minutes_enabled)
+                self.assertFalse(user.reminder_1_hour_enabled)
+                self.assertTrue(user.routine_notification_sounds)
+                self.assertTrue(user.quiet_hours_enabled)
+                self.assertEqual(user.quiet_hours_start, "22:00")
             app.extensions["planify_engine"].dispose()
 
 

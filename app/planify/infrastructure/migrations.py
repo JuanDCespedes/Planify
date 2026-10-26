@@ -43,6 +43,21 @@ def migrate_sqlite_user_ownership(engine):
                 ("display_name", "VARCHAR(60) NOT NULL DEFAULT ''"),
                 ("default_reminder", "VARCHAR(20) NOT NULL DEFAULT '15m'"),
                 ("in_app_notifications", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("reminder_at_event_enabled", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("reminder_5_minutes_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+                ("reminder_15_minutes_enabled", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("reminder_30_minutes_enabled", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("reminder_1_hour_enabled", "BOOLEAN NOT NULL DEFAULT 0"),
+                ("reminder_1_day_enabled", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("routine_notify_start", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("routine_notify_5_minutes", "BOOLEAN NOT NULL DEFAULT 0"),
+                ("routine_notification_sounds", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("desktop_push_notifications", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("weekly_email_summaries", "BOOLEAN NOT NULL DEFAULT 0"),
+                ("quiet_hours_enabled", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("quiet_hours_start", "VARCHAR(5) NOT NULL DEFAULT '22:00'"),
+                ("quiet_hours_end", "VARCHAR(5) NOT NULL DEFAULT '06:00'"),
+                ("last_weekly_digest_key", "VARCHAR(8)"),
             ):
                 if name not in user_columns:
                     connection.execute(text(f"ALTER TABLE users ADD COLUMN {name} {definition}"))
@@ -51,6 +66,17 @@ def migrate_sqlite_user_ownership(engine):
             )
 
         if "events" not in tables:
+            if "notifications" in tables:
+                columns = {column["name"] for column in inspector.get_columns("notifications")}
+                if "dedupe_key" not in columns:
+                    connection.execute(text("ALTER TABLE notifications ADD COLUMN dedupe_key VARCHAR(120)"))
+                if "notification_type" not in columns:
+                    connection.execute(
+                        text("ALTER TABLE notifications ADD COLUMN notification_type VARCHAR(20) NOT NULL DEFAULT 'general'")
+                    )
+                connection.execute(
+                    text("CREATE UNIQUE INDEX IF NOT EXISTS uq_notifications_dedupe_key ON notifications (dedupe_key)")
+                )
             return
 
         event_columns = {column["name"] for column in inspector.get_columns("events")}
@@ -80,4 +106,20 @@ def migrate_sqlite_user_ownership(engine):
                     "AND events.category_id IS NULL AND events.user_id IS NOT NULL"
                 ),
                 {"display_name": display_name, "legacy_name": legacy_name},
+            )
+
+        if "notifications" in tables:
+            notification_columns = {
+                column["name"] for column in inspector.get_columns("notifications")
+            }
+            if "dedupe_key" not in notification_columns:
+                connection.execute(
+                    text("ALTER TABLE notifications ADD COLUMN dedupe_key VARCHAR(120)")
+                )
+            if "notification_type" not in notification_columns:
+                connection.execute(
+                    text("ALTER TABLE notifications ADD COLUMN notification_type VARCHAR(20) NOT NULL DEFAULT 'general'")
+                )
+            connection.execute(
+                text("CREATE UNIQUE INDEX IF NOT EXISTS uq_notifications_dedupe_key ON notifications (dedupe_key)")
             )
