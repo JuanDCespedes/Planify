@@ -66,6 +66,30 @@ Las notificaciones siguen siendo locales y de demostración. A futuro, `Notifica
 - Google/GitHub OAuth y la recuperación por correo no están configurados; no se ofrecen como botones que aparenten funcionar. La pantalla de recuperación explica la limitación.
 - En instalaciones existentes, los datos antiguos sin propietario no se muestran ni se asignan a la primera cuenta que se registre.
 
+## Hosting gratuito en PythonAnywhere
+
+PythonAnywhere tiene un plan gratuito para una app pequeña como esta. Consulta sus [planes actuales](https://www.pythonanywhere.com/pricing/) antes de registrarte: el plan gratuito es limitado (incluye un máximo de 512 MB de espacio y 100 segundos de CPU al día) y restringe las conexiones salientes. Planify no necesita conexiones salientes para sus funciones actuales. El proyecto y SQLite quedan dentro de tu directorio personal; no uses este plan para datos sensibles ni para una app de alto tráfico.
+
+1. Crea una cuenta **Beginner gratuita** en [PythonAnywhere](https://www.pythonanywhere.com/registration/register/beginner/); no compartas tu contraseña.
+2. En **Web → Add a new web app**, elige **Manual configuration** y **Python 3.13**.
+3. Abre una consola **Bash** e instala la app desde el repositorio público:
+
+   ```bash
+   git clone https://github.com/JuanDCespedes/Planify.git
+   cd ~/Planify/app
+   python3.13 -m venv ~/.virtualenvs/planify
+   ~/.virtualenvs/planify/bin/pip install -r requirements.txt
+   python3.13 -c "import secrets; from pathlib import Path; Path.home().joinpath('.planify_secret').write_text(secrets.token_urlsafe(48), encoding='utf-8')"
+   chmod 600 ~/.planify_secret
+   ```
+
+   El archivo con la clave secreta se crea fuera del repositorio y solo debe ser accesible para tu cuenta.
+
+4. En la pestaña **Web**, configura la virtualenv como `~/.virtualenvs/planify`. Abre el enlace **WSGI configuration file**, reemplaza su contenido por el de [`pythonanywhere_wsgi.py`](./pythonanywhere_wsgi.py) y guarda.
+5. Pulsa **Reload** y abre la URL de tu cuenta (`tu-usuario.pythonanywhere.com`). Regístrate para crear tu espacio personal.
+
+El WSGI configura las cookies seguras y crea SQLite en `~/Planify/app/instance/planify.db`, dentro del almacenamiento de tu cuenta. Las cuentas de esta aplicación son independientes; cualquiera puede registrarse y solo verá sus propios datos. La recuperación por correo sigue desactivada.
+
 ## Despliegue con Docker
 
 La SQLite de producción debe permanecer en un volumen persistente. La configuración `docker-compose.yml` incluida monta el volumen `planify-data` en `/data`.
