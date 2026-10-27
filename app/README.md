@@ -2,6 +2,8 @@
 
 Planify es una aplicación de planificación personal en español. Cada cuenta tiene sus propios eventos, calendario, bloques de rutina y notificaciones. La interfaz adaptable usa los detalles coral/naranja del prototipo de acceso y configuración; el tema oscuro se guarda en el navegador.
 
+Esta guía cubre instalación, configuración, uso y despliegue. Para conocer las capas, los modelos, los flujos internos y las responsabilidades de los módulos, consulta la [documentación técnica](docs/architecture.md). Los comandos de esta guía se ejecutan desde esta carpeta `app/` del repositorio.
+
 ## Ejecutar en Windows
 
 ### Requisitos
@@ -126,17 +128,15 @@ GOOGLE_CLIENT_SECRET=tu-secreto-de-cliente
 
    ```text
    http://127.0.0.1:5000
-   https://desktop-jlq5gpl.tail35211e.ts.net
    ```
 
 4. Añade estos URI de redirección autorizados (deben coincidir exactamente):
 
    ```text
    http://127.0.0.1:5000/auth/google/callback
-   https://desktop-jlq5gpl.tail35211e.ts.net/auth/google/callback
    ```
 
-   La dirección HTTPS corresponde al enlace temporal de Funnel de este equipo. Si el dominio cambia, actualiza el URI en Google Cloud. Para usar otro dominio local, registra también el origen y la ruta exactos.
+   Si accedes mediante un dominio HTTPS, añade también ese origen y el URI de retorno correspondiente, por ejemplo `https://planify.example.com` y `https://planify.example.com/auth/google/callback`. Sustituye el ejemplo por tu dominio real; los valores registrados en Google deben coincidir exactamente con los que usa la aplicación.
 
 5. Copia el **ID de cliente** y el **secreto de cliente** en PowerShell, dentro de la misma terminal desde la que iniciarás Planify:
 
@@ -146,7 +146,7 @@ GOOGLE_CLIENT_SECRET=tu-secreto-de-cliente
    python app.py
    ```
 
-   Para acceso local directo, deja `GOOGLE_REDIRECT_URI` sin definir. Si Planify está detrás de un proxy HTTPS o Tailscale Funnel, define `GOOGLE_REDIRECT_URI` con la dirección pública exacta registrada en Google Cloud, por ejemplo `https://desktop-jlq5gpl.tail35211e.ts.net/auth/google/callback`; algunos proxies no comunican el esquema HTTPS al servidor y la detección automática produciría una URL incorrecta.
+   Para acceso local directo, deja `GOOGLE_REDIRECT_URI` sin definir. Si Planify está detrás de un proxy HTTPS o túnel, define `GOOGLE_REDIRECT_URI` con la dirección pública exacta registrada en Google Cloud; algunos proxies no comunican el esquema HTTPS al servidor y la detección automática produciría una URL incorrecta.
 
    Cierra y vuelve a iniciar Planify después de añadir o cambiar variables. Al usar Docker, pon las variables en tu archivo local `.env`, que está excluido de Git; nunca las pegues en `.env.example` ni en el repositorio.
 

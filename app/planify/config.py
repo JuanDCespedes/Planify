@@ -1,3 +1,5 @@
+"""Carga la configuración de Planify desde variables de entorno y `.env`."""
+
 import os
 from pathlib import Path
 
@@ -8,6 +10,8 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 
 
 class Config:
+    """Valores predeterminados y ajustes de seguridad para Flask y sus servicios."""
+
     TIMEZONE = os.environ.get("PLANIFY_TIMEZONE", "America/Bogota")
     SECRET_KEY = os.environ.get("PLANIFY_SECRET_KEY", "dev-only-change-me")
     DATABASE_URL = os.environ.get("PLANIFY_DATABASE_URL")

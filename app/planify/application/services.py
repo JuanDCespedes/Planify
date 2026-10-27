@@ -1,3 +1,5 @@
+"""Casos de uso de agenda, rutinas, categorías y notificaciones."""
+
 import calendar
 from datetime import date, datetime, time, timedelta, timezone
 
@@ -17,18 +19,28 @@ from planify.infrastructure.repositories import CategoryRepository, EventReposit
 
 
 class EventService:
+    """Gestiona eventos y categorías bajo el ámbito de una cuenta."""
+
     def __init__(self, session: Session, user_id: int):
+        """Crea el servicio limitado al usuario indicado."""
         self.session = session
         self.events = EventRepository(session)
         self.user_id = user_id
 
     def get(self, event_id):
+        """Obtiene un evento solo si pertenece al usuario del servicio."""
         return self.events.get(event_id, self.user_id)
 
     def list_between(self, start_date, end_date):
+        """Lista eventos propios dentro de un intervalo inclusivo de fechas."""
         return self.events.between(start_date, end_date, self.user_id)
 
     def save(self, event, title, event_date, start_time, category, reminder):
+        """Valida y guarda un evento, creando una categoría personal si procede.
+
+        Devuelve una lista vacía al guardar o mensajes de validación si no puede
+        persistir los datos.
+        """
         is_category_id = isinstance(category, int)
         errors = validate_event(
             title,
@@ -106,20 +118,26 @@ class EventService:
         return []
 
     def delete(self, event):
+        """Elimina el evento proporcionado y confirma la transacción."""
         self.events.delete(event)
         self.session.commit()
 
 
 class RoutineService:
+    """Gestiona los bloques semanales de rutina de una cuenta."""
+
     def __init__(self, session: Session, user_id: int):
+        """Crea el servicio limitado al usuario indicado."""
         self.session = session
         self.blocks = RoutineRepository(session)
         self.user_id = user_id
 
     def list_for_day(self, day_of_week):
+        """Lista los bloques propios del día de la semana indicado."""
         return self.blocks.for_day(day_of_week, self.user_id)
 
     def add(self, title, start_time, duration_minutes, day_of_week):
+        """Valida y crea un bloque de rutina, o devuelve errores de validación."""
         errors = validate_routine_block(title, start_time, duration_minutes)
         if errors:
             return errors
@@ -137,40 +155,53 @@ class RoutineService:
 
 
 class NotificationService:
+    """Consulta y modifica las notificaciones de una cuenta."""
+
     def __init__(self, session: Session, user_id: int):
+        """Crea el servicio limitado al usuario indicado."""
         self.session = session
         self.notifications = NotificationRepository(session)
         self.user_id = user_id
 
     def list_all(self):
+        """Lista las notificaciones propias ordenadas por estado y fecha."""
         return self.notifications.all(self.user_id)
 
     def get(self, notification_id):
+        """Obtiene una notificación solo si pertenece al usuario del servicio."""
         return self.notifications.get(notification_id, self.user_id)
 
     def mark_read(self, notification):
+        """Marca una notificación propia como leída y confirma el cambio."""
         notification.is_read = True
         self.session.commit()
 
     def mark_all_read(self):
+        """Marca como leídas todas las notificaciones del usuario."""
         self.notifications.mark_all_read(self.user_id)
         self.session.commit()
 
     def dismiss(self, notification):
+        """Elimina una notificación propia y confirma el cambio."""
         self.notifications.delete(notification)
         self.session.commit()
 
 
 class CategoryService:
+    """Administra categorías personales y protege su uso por eventos."""
+
     def __init__(self, session: Session, user_id: int):
+        """Crea el servicio limitado al usuario indicado."""
         self.session = session
         self.user_id = user_id
         self.categories = CategoryRepository(session)
 
     def list_all(self):
+        """Lista las categorías propias en orden alfabético."""
         return self.categories.all(self.user_id)
 
     def create(self, name, color):
+        """Valida y crea una categoría personal o devuelve errores."""
         errors = validate_category(name, color)
         normalized_name = name.strip() if name else ""
         if not errors and self.categories.by_name(normalized_name, self.user_id):
@@ -186,6 +217,7 @@ class CategoryService:
         return []
 
     def update(self, category_id, name, color):
+        """Actualiza una categoría propia tras comprobar nombre y color."""
         category = self.categories.get(category_id, self.user_id)
         if category is None:
             return ["No encontramos esa categoría."]
@@ -205,6 +237,7 @@ class CategoryService:
         return []
 
     def delete(self, category_id):
+        """Elimina una categoría propia si no tiene eventos y no es la última."""
         category = self.categories.get(category_id, self.user_id)
         if category is None:
             return ["No encontramos esa categoría."]
@@ -218,10 +251,15 @@ class CategoryService:
 
 
 def month_grid(year, month):
+    """Devuelve las semanas de un mes en filas que comienzan el lunes."""
     return calendar.Calendar(firstweekday=0).monthdayscalendar(year, month)
 
 
 def seed_demo_data(session: Session, user_id: int):
+    """Asegura categorías base y, si faltan eventos, crea datos iniciales.
+
+    Todos los registros nuevos quedan asociados exclusivamente a `user_id`.
+    """
     categories = {
         category.color: category
         for category in session.scalars(select(Category).where(Category.user_id == user_id)).all()

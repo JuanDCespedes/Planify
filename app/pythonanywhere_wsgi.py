@@ -1,3 +1,5 @@
+"""Configura y expone la aplicación Flask para el servidor WSGI de PythonAnywhere."""
+
 import os
 import sys
 from pathlib import Path

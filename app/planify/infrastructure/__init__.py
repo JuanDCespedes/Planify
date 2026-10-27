@@ -1,0 +1,1 @@
+"""Adaptadores de persistencia, seguridad y servicios externos."""

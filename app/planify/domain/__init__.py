@@ -1,0 +1,1 @@
+"""Entidades y reglas del dominio de planificación."""

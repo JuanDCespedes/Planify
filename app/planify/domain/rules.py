@@ -1,3 +1,5 @@
+"""Opciones admitidas y validaciones reutilizables del dominio."""
+
 from datetime import date, time
 
 
@@ -36,6 +38,7 @@ REMINDER_PREFERENCE_FIELDS = {
 
 
 def validate_category(name, color):
+    """Devuelve errores si el nombre o color de categoría no son válidos."""
     errors = []
     if not name or not name.strip():
         errors.append("Escribe un nombre para la categoría.")
@@ -47,6 +50,7 @@ def validate_category(name, color):
 
 
 def validate_event(title, event_date, start_time, category, reminder):
+    """Devuelve errores si los datos básicos de un evento no son válidos."""
     errors = []
     if not title or not title.strip():
         errors.append("Escribe un título para el evento.")
@@ -64,6 +68,7 @@ def validate_event(title, event_date, start_time, category, reminder):
 
 
 def validate_routine_block(title, start_time, duration_minutes):
+    """Valida el nombre, la hora y la duración de un bloque de rutina."""
     errors = []
     if not title or not title.strip():
         errors.append("Escribe un nombre para el bloque.")

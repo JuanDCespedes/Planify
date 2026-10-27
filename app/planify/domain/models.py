@@ -1,3 +1,5 @@
+"""Modelos ORM que representan las cuentas y sus datos de planificación."""
+
 from datetime import date, datetime, time, timezone
 
 from flask_login import UserMixin
@@ -7,10 +9,14 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 
 class Base(DeclarativeBase):
+    """Base declarativa común para los modelos SQLAlchemy."""
+
     pass
 
 
 class User(UserMixin, Base):
+    """Cuenta, credenciales, vínculo OAuth y preferencias personales."""
+
     __tablename__ = "users"
     __table_args__ = (Index("uq_users_google_subject", "google_subject", unique=True),)
 
@@ -44,13 +50,17 @@ class User(UserMixin, Base):
     )
 
     def set_password(self, password: str) -> None:
+        """Guarda el hash seguro de una contraseña sin conservar el texto original."""
         self.password_hash = generate_password_hash(password)
 
     def check_password(self, password: str) -> bool:
+        """Comprueba una contraseña frente al hash almacenado."""
         return check_password_hash(self.password_hash, password)
 
 
 class Event(Base):
+    """Evento de agenda con propietario, categoría y preferencia de recordatorio."""
+
     __tablename__ = "events"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -66,6 +76,8 @@ class Event(Base):
 
 
 class Category(Base):
+    """Categoría personalizada que pertenece a una cuenta."""
+
     __tablename__ = "categories"
     __table_args__ = (UniqueConstraint("user_id", "name", name="uq_categories_user_name"),)
 
@@ -76,6 +88,8 @@ class Category(Base):
 
 
 class RoutineBlock(Base):
+    """Bloque de rutina semanal de una cuenta."""
+
     __tablename__ = "routine_blocks"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -87,6 +101,8 @@ class RoutineBlock(Base):
 
 
 class Notification(Base):
+    """Aviso persistido con estado de lectura y seguimiento de entrega."""
+
     __tablename__ = "notifications"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -106,6 +122,8 @@ class Notification(Base):
 
 
 class PushSubscription(Base):
+    """Suscripción Web Push de un navegador perteneciente a una cuenta."""
+
     __tablename__ = "push_subscriptions"
     __table_args__ = (Index("uq_push_subscriptions_endpoint", "endpoint", unique=True),)
 

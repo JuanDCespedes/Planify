@@ -1,3 +1,5 @@
+"""Adaptadores para enviar notificaciones por SMTP y Web Push."""
+
 import base64
 import json
 import logging
@@ -14,6 +16,7 @@ from planify.domain.models import Notification, PushSubscription, User
 
 
 def push_is_configured(config):
+    """Indica si la configuración incluye el par VAPID y el correo de contacto."""
     return bool(
         config.get("VAPID_PUBLIC_KEY")
         and config.get("VAPID_PRIVATE_KEY")
@@ -22,10 +25,12 @@ def push_is_configured(config):
 
 
 def email_is_configured(config):
+    """Indica si existen al menos el host SMTP y una dirección remitente."""
     return bool(config.get("SMTP_HOST") and config.get("SMTP_FROM"))
 
 
 def _send_email_message(message, config):
+    """Entrega un mensaje mediante SMTP con la seguridad configurada."""
     context = ssl.create_default_context()
     host = config["SMTP_HOST"]
     port = config.get("SMTP_PORT", 587)
@@ -46,6 +51,7 @@ def _send_email_message(message, config):
 
 
 def send_notification_email(notification: Notification, user: User, config):
+    """Envía por SMTP un aviso de evento o rutina; indica si estaba configurado."""
     if not email_is_configured(config):
         return False
 
@@ -62,6 +68,7 @@ def send_notification_email(notification: Notification, user: User, config):
 
 
 def send_push_notification(session: Session, notification: Notification, user: User, config, logger):
+    """Envía el aviso a las suscripciones propias y elimina endpoints expirados."""
     if not user.desktop_push_notifications or not push_is_configured(config):
         return
 
@@ -99,6 +106,7 @@ def send_push_notification(session: Session, notification: Notification, user: U
 
 
 def send_weekly_digest(user: User, events, config, logger):
+    """Envía el resumen semanal de eventos y devuelve si SMTP estaba disponible."""
     if not email_is_configured(config):
         logger.info("Weekly email is enabled for user %s, but SMTP is not configured.", user.id)
         return False
@@ -123,6 +131,7 @@ def send_weekly_digest(user: User, events, config, logger):
 
 
 def generate_vapid_keys():
+    """Genera y devuelve las claves VAPID privada y pública en Base64 URL-safe."""
     from py_vapid import Vapid
     from cryptography.hazmat.primitives import serialization
 

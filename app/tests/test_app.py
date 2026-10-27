@@ -1,3 +1,5 @@
+"""Pruebas de integración para rutas, cuentas y servicios de Planify."""
+
 import base64
 import sqlite3
 import tempfile
@@ -16,6 +18,8 @@ from planify.infrastructure.notification_scheduler import process_due_notificati
 
 
 class TestConfig:
+    """Configuración aislada para pruebas rápidas con SQLite en memoria."""
+
     TESTING = True
     SECRET_KEY = "test-secret-key-for-planify"
     DATABASE_URL = "sqlite:///:memory:"
@@ -24,25 +28,34 @@ class TestConfig:
 
 
 class GoogleTestConfig(TestConfig):
+    """Configuración de prueba que habilita el cliente OAuth de Google."""
+
     GOOGLE_CLIENT_ID = "test-client-id"
     GOOGLE_CLIENT_SECRET = "test-client-secret"
 
 
 class PushTestConfig(TestConfig):
+    """Configuración de prueba con claves VAPID ficticias."""
+
     VAPID_PUBLIC_KEY = "public-test-key"
     VAPID_PRIVATE_KEY = "private-test-key"
     VAPID_CLAIMS_EMAIL = "mailto:test@example.com"
 
 
 class PlanifyRoutesTest(unittest.TestCase):
+    """Comprueba los flujos web y las reglas de aislamiento entre cuentas."""
+
     def setUp(self):
+        """Crea una aplicación y un cliente HTTP nuevos para cada prueba."""
         self.app = create_app(TestConfig)
         self.client = self.app.test_client()
 
     def tearDown(self):
+        """Libera el motor SQLite asociado a la aplicación de prueba."""
         self.app.extensions["planify_engine"].dispose()
 
     def register(self, client, email="ana@example.com", password="una-clave-segura-123"):
+        """Registra una cuenta de prueba y sigue la redirección al panel."""
         return client.post(
             "/register",
             data={
@@ -54,6 +67,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         )
 
     def test_auth_pages_and_protected_routes(self):
+        """Verifica páginas públicas y redirección de rutas privadas sin sesión."""
         response = self.client.get("/")
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.headers["Location"].startswith("/login?next="))
@@ -62,6 +76,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertEqual(self.client.get("/forgot-password").status_code, 200)
 
     def test_register_login_and_logout_use_hashed_passwords(self):
+        """Comprueba registro, normalización, hash de contraseña y ciclo de sesión."""
         response = self.register(self.client, email="  ANA@EXAMPLE.COM ")
         self.assertEqual(response.status_code, 200)
         self.assertIn("Tu cuenta está lista".encode(), response.data)
@@ -86,6 +101,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertEqual(self.client.get("/").status_code, 302)
 
     def test_registration_rejects_weak_password_and_duplicate_email(self):
+        """Rechaza contraseñas débiles y direcciones ya registradas."""
         weak_password = self.client.post(
             "/register",
             data={
@@ -111,6 +127,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertIn("ya está registrado".encode(), duplicate.data)
 
     def test_invalid_login_message_does_not_disclose_account_existence(self):
+        """Usa el mismo mensaje de acceso fallido para cuentas existentes e inexistentes."""
         self.register(self.client)
         self.client.post("/logout")
 
@@ -126,6 +143,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertIn("no son correctos".encode(), messages[1])
 
     def test_other_accounts_cannot_read_or_change_events(self):
+        """Impide que una cuenta consulte o elimine eventos de otra."""
         self.register(self.client, "ana@example.com")
         with self.app.app_context():
             event = get_session().scalar(select(Event).where(Event.title == "Planificar la semana"))
@@ -144,6 +162,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             self.assertIsNotNone(event)
 
     def test_other_accounts_cannot_read_another_users_notifications(self):
+        """Aísla las vistas, la API y las acciones de notificación por cuenta."""
         self.register(self.client, "ana@example.com")
         with self.app.app_context():
             ana = get_session().scalar(select(User).where(User.email == "ana@example.com"))
@@ -172,6 +191,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             self.assertIsNotNone(notification)
 
     def test_notification_timestamps_are_shown_in_bogota_time(self):
+        """Comprueba que las fechas de avisos se muestren en la zona configurada."""
         self.register(self.client)
         with self.app.app_context():
             user = get_session().scalar(select(User).where(User.email == "ana@example.com"))
@@ -189,6 +209,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertIn("26/10 · 21:31".encode(), response.data)
 
     def test_event_notifications_are_scheduled_once_after_quiet_hours(self):
+        """Retrasa un recordatorio por horas silenciosas y evita duplicarlo."""
         self.register(self.client)
         with self.app.app_context():
             db_session = get_session()
@@ -237,6 +258,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             self.assertEqual(matching[0].user_id, user.id)
 
     def test_routine_reminder_uses_user_preferences(self):
+        """Programa solo el aviso de rutina habilitado en las preferencias."""
         self.register(self.client)
         with self.app.app_context():
             db_session = get_session()
@@ -270,6 +292,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             self.assertEqual(notification.message, "Estudiar empieza en 5 minutos.")
 
     def test_weekly_digest_runs_after_nine_and_is_deduplicated(self):
+        """Envía un resumen semanal desde las nueve y como máximo una vez."""
         self.register(self.client)
         with self.app.app_context():
             db_session = get_session()
@@ -303,6 +326,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             self.assertEqual(user.last_weekly_digest_key, "2026-W20")
 
     def test_weekly_digest_stays_disabled_without_smtp_configuration(self):
+        """No intenta generar resúmenes semanales sin SMTP configurado."""
         self.register(self.client)
         with self.app.app_context():
             db_session = get_session()
@@ -322,6 +346,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             self.assertIsNone(user.last_weekly_digest_key)
 
     def test_event_and_routine_email_reminders_are_sent_once(self):
+        """Entrega por correo el aviso de rutina y no lo vuelve a enviar."""
         self.register(self.client)
         with self.app.app_context():
             db_session = get_session()
@@ -368,6 +393,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             self.assertEqual(notification.email_attempt_count, 1)
 
     def test_push_subscription_is_owned_and_browser_service_worker_is_available(self):
+        """Valida suscripciones push, limita propiedad y sirve el service worker."""
         app = create_app(PushTestConfig)
         try:
             client = app.test_client()
@@ -416,6 +442,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             app.extensions["planify_engine"].dispose()
 
     def test_create_edit_delete_event_and_account_features(self):
+        """Comprueba operaciones principales de agenda, rutina y notificaciones."""
         self.register(self.client)
         self.assertIn("Agenda del día".encode(), self.client.get("/").data)
         self.assertEqual(self.client.get("/calendar").status_code, 200)
@@ -481,6 +508,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertEqual(self.client.get("/settings").status_code, 200)
 
     def test_event_form_creates_and_reuses_typed_personal_categories(self):
+        """Reutiliza una categoría personalizada ignorando diferencias de espacios y caso."""
         self.register(self.client)
         for title, category in (
             ("Preparar examen", "Universidad"),
@@ -525,6 +553,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertIn(b'<option value="Universidad">', form.data)
 
     def test_invalid_event_and_foreign_redirect_are_rejected(self):
+        """Rechaza eventos incompletos y destinos de acceso externos."""
         self.register(self.client)
         response = self.client.post(
             "/events/new",
@@ -548,6 +577,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertEqual(response.headers["Location"], "/")
 
     def test_personal_categories_are_private_and_cannot_be_deleted_while_in_use(self):
+        """Aísla categorías y bloquea borrar categorías en uso o ajenas."""
         self.register(self.client, "ana@example.com")
         created = self.client.post(
             "/settings/categories",
@@ -619,6 +649,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             self.assertIsNone(get_session().get(Category, category_id))
 
     def test_settings_persist_profile_preferences_and_password(self):
+        """Guarda el perfil, preferencias y contraseña y permite volver a autenticar."""
         self.register(self.client)
         settings_page = self.client.get("/settings")
         self.assertIn("Correo por cada recordatorio".encode(), settings_page.data)
@@ -684,6 +715,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertEqual(login.status_code, 302)
 
     def test_notification_settings_require_a_reminder_and_valid_quiet_hours(self):
+        """Exige un recordatorio activo y horas silenciosas válidas."""
         self.register(self.client)
         no_reminders = self.client.post(
             "/settings/preferences",
@@ -713,6 +745,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             self.assertEqual(user.quiet_hours_start, "22:00")
 
     def test_event_reminder_preferences_are_applied_when_creating_events(self):
+        """Impide asignar al evento un recordatorio deshabilitado en preferencias."""
         self.register(self.client)
         with self.app.app_context():
             category_id = get_session().scalar(select(Category.id).where(Category.color == "work"))
@@ -739,6 +772,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertIn("desactivado en tu configuración".encode(), unavailable_reminder.data)
 
     def test_default_reminder_setting_accepts_only_enabled_options(self):
+        """Acepta como predeterminado solo un recordatorio habilitado."""
         self.register(self.client)
         saved = self.client.post(
             "/settings/default-reminder",
@@ -757,6 +791,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             self.assertEqual(user.default_reminder, "1d")
 
     def test_account_deletion_requires_confirmation_and_removes_owned_data(self):
+        """Exige confirmaciones correctas y elimina los datos de la cuenta."""
         self.register(self.client)
         with self.app.app_context():
             user_id = get_session().scalar(select(User.id).where(User.email == "ana@example.com"))
@@ -790,6 +825,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             ), None)
 
     def test_google_login_is_exposed_but_requires_credentials(self):
+        """Muestra la opción de Google e informa cuando el servidor no la configura."""
         response = self.client.get("/login")
         self.assertIn("Continuar con Google".encode(), response.data)
         unavailable = self.client.get("/auth/google", follow_redirects=True)
@@ -797,6 +833,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertIn("Google aún no está configurado".encode(), unavailable.data)
 
     def test_google_oidc_creates_account_and_requires_verified_email(self):
+        """Crea la cuenta OAuth y rechaza perfiles de Google sin correo verificado."""
         app = create_app(GoogleTestConfig)
         client = app.test_client()
         google = app.extensions["planify_oauth"].google
@@ -849,6 +886,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         unverified_app.extensions["planify_engine"].dispose()
 
     def test_google_sign_in_links_verified_email_to_existing_account(self):
+        """Vincula una identidad Google solo a una cuenta con correo verificado coincidente."""
         app = create_app(GoogleTestConfig)
         client = app.test_client()
         self.register(client, "ana@example.com")
@@ -875,7 +913,10 @@ class PlanifyRoutesTest(unittest.TestCase):
         app.extensions["planify_engine"].dispose()
 
     def test_csrf_protects_state_changing_requests(self):
+        """Rechaza solicitudes de cambio de estado sin token CSRF."""
         class CsrfTestConfig(TestConfig):
+            """Activa CSRF para comprobar el rechazo de formularios sin token."""
+
             WTF_CSRF_ENABLED = True
 
         app = create_app(CsrfTestConfig)
@@ -885,7 +926,10 @@ class PlanifyRoutesTest(unittest.TestCase):
         app.extensions["planify_engine"].dispose()
 
     def test_production_requires_a_long_secret_and_secure_cookies(self):
+        """Rechaza claves inseguras en producción y exige cookies Secure."""
         class UnsafeProductionConfig(TestConfig):
+            """Simula producción con una clave secreta que no cumple el mínimo."""
+
             ENVIRONMENT = "production"
             SECRET_KEY = "too-short"
 
@@ -893,6 +937,8 @@ class PlanifyRoutesTest(unittest.TestCase):
             create_app(UnsafeProductionConfig)
 
         class ProductionConfig(TestConfig):
+            """Simula producción con una clave secreta suficientemente larga."""
+
             ENVIRONMENT = "production"
             SECRET_KEY = "a" * 48
 
@@ -901,7 +947,10 @@ class PlanifyRoutesTest(unittest.TestCase):
         app.extensions["planify_engine"].dispose()
 
     def test_login_attempts_are_rate_limited(self):
+        """Comprueba el límite de intentos configurado para la ruta de acceso."""
         class RateLimitTestConfig(TestConfig):
+            """Activa el limitador de solicitudes durante la prueba."""
+
             RATELIMIT_ENABLED = True
 
         app = create_app(RateLimitTestConfig)
@@ -916,6 +965,7 @@ class PlanifyRoutesTest(unittest.TestCase):
         app.extensions["planify_engine"].dispose()
 
     def test_existing_sqlite_data_is_migrated_without_claiming_old_rows(self):
+        """Añade columnas a datos SQLite heredados sin asignarlos a una cuenta nueva."""
         with tempfile.TemporaryDirectory() as directory:
             database_path = Path(directory, "legacy.db")
             legacy_connection = sqlite3.connect(database_path)
@@ -955,6 +1005,8 @@ class PlanifyRoutesTest(unittest.TestCase):
                 legacy_connection.close()
 
             class MigrationTestConfig(TestConfig):
+                """Apunta la aplicación al archivo SQLite heredado de la prueba."""
+
                 DATABASE_URL = f"sqlite:///{database_path.as_posix()}"
 
             app = create_app(MigrationTestConfig)
@@ -974,6 +1026,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             app.extensions["planify_engine"].dispose()
 
     def test_migration_connects_existing_users_events_to_private_categories(self):
+        """Conserva propietarios existentes y enlaza eventos a categorías privadas."""
         with tempfile.TemporaryDirectory() as directory:
             database_path = Path(directory, "owned-legacy.db")
             legacy_connection = sqlite3.connect(database_path)
@@ -1008,6 +1061,8 @@ class PlanifyRoutesTest(unittest.TestCase):
                 legacy_connection.close()
 
             class OwnedMigrationTestConfig(TestConfig):
+                """Usa el archivo heredado con cuentas y eventos ya relacionados."""
+
                 DATABASE_URL = f"sqlite:///{database_path.as_posix()}"
 
             app = create_app(OwnedMigrationTestConfig)

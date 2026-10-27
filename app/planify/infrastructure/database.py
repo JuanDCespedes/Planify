@@ -1,3 +1,5 @@
+"""Inicialización del motor y ciclo de vida de sesiones SQLAlchemy."""
+
 from pathlib import Path
 
 from flask import current_app, g
@@ -9,6 +11,11 @@ from planify.infrastructure.migrations import migrate_sqlite_user_ownership
 
 
 def init_database(app):
+    """Crea el motor, inicializa el esquema y registra el cierre de sesiones.
+
+    Si no se configura una URL, guarda SQLite en el directorio `instance`
+    de la aplicación.
+    """
     database_url = app.config.get("DATABASE_URL")
     if not database_url:
         Path(app.instance_path).mkdir(parents=True, exist_ok=True)
@@ -22,12 +29,14 @@ def init_database(app):
 
     @app.teardown_appcontext
     def close_session(_error=None):
+        """Cierra la sesión asociada al contexto de la solicitud."""
         session = g.pop("planify_db_session", None)
         if session is not None:
             session.close()
 
 
 def get_session() -> Session:
+    """Devuelve la sesión SQLAlchemy perezosa del contexto Flask actual."""
     if "planify_db_session" not in g:
         session_factory = current_app.extensions["planify_session_factory"]
         g.planify_db_session = session_factory()

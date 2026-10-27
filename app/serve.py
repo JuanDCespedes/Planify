@@ -1,3 +1,5 @@
+"""Punto de entrada para servir Planify con Waitress."""
+
 import os
 
 from waitress import serve

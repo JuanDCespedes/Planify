@@ -1,3 +1,5 @@
+"""Fábrica de la aplicación Flask y configuración de extensiones de Planify."""
+
 import os
 
 from flask import Flask
@@ -19,6 +21,11 @@ csrf = CSRFProtect()
 
 
 def create_app(config_object=Config):
+    """Crea y configura una instancia de Planify.
+
+    Registra extensiones y rutas, inicializa la base de datos y habilita el
+    planificador de notificaciones cuando corresponde a la configuración.
+    """
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_object(config_object)
 
@@ -62,6 +69,7 @@ def create_app(config_object=Config):
 
 @login_manager.user_loader
 def load_user(user_id):
+    """Recupera de la base de datos al usuario asociado a una sesión Flask-Login."""
     try:
         parsed_user_id = int(user_id)
     except (TypeError, ValueError):
