@@ -146,7 +146,7 @@ GOOGLE_CLIENT_SECRET=tu-secreto-de-cliente
    python app.py
    ```
 
-   Deja `GOOGLE_REDIRECT_URI` sin definir: Planify detecta la dirección con la que se abrió la aplicación y usa la ruta `/auth/google/callback`. Así funcionan las dos direcciones de redirección anteriores. Si necesitas fijar una, define `GOOGLE_REDIRECT_URI` con una URL exacta registrada en Google Cloud.
+   Para acceso local directo, deja `GOOGLE_REDIRECT_URI` sin definir. Si Planify está detrás de un proxy HTTPS o Tailscale Funnel, define `GOOGLE_REDIRECT_URI` con la dirección pública exacta registrada en Google Cloud, por ejemplo `https://desktop-jlq5gpl.tail35211e.ts.net/auth/google/callback`; algunos proxies no comunican el esquema HTTPS al servidor y la detección automática produciría una URL incorrecta.
 
    Cierra y vuelve a iniciar Planify después de añadir o cambiar variables. Al usar Docker, pon las variables en tu archivo local `.env`, que está excluido de Git; nunca las pegues en `.env.example` ni en el repositorio.
 
