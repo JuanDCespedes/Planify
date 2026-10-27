@@ -171,6 +171,23 @@ class PlanifyRoutesTest(unittest.TestCase):
             notification = get_session().get(Notification, notification_id)
             self.assertIsNotNone(notification)
 
+    def test_notification_timestamps_are_shown_in_bogota_time(self):
+        self.register(self.client)
+        with self.app.app_context():
+            user = get_session().scalar(select(User).where(User.email == "ana@example.com"))
+            get_session().add(
+                Notification(
+                    user_id=user.id,
+                    title="Aviso de prueba",
+                    message="Prueba de hora local.",
+                    created_at=datetime(2026, 10, 27, 2, 31),
+                )
+            )
+            get_session().commit()
+
+        response = self.client.get("/notifications")
+        self.assertIn("26/10 · 21:31".encode(), response.data)
+
     def test_event_notifications_are_scheduled_once_after_quiet_hours(self):
         self.register(self.client)
         with self.app.app_context():
@@ -284,6 +301,71 @@ class PlanifyRoutesTest(unittest.TestCase):
                 )
                 self.assertEqual(send_digest.call_count, 1)
             self.assertEqual(user.last_weekly_digest_key, "2026-W20")
+
+    def test_weekly_digest_stays_disabled_without_smtp_configuration(self):
+        self.register(self.client)
+        with self.app.app_context():
+            db_session = get_session()
+            user = db_session.scalar(select(User).where(User.email == "ana@example.com"))
+            user.weekly_email_summaries = True
+            user.quiet_hours_enabled = False
+            db_session.commit()
+            with patch(
+                "planify.infrastructure.notification_scheduler.send_weekly_digest"
+            ) as send_digest:
+                process_due_notifications(
+                    db_session,
+                    now=datetime(2026, 10, 26, 9, 0),
+                    config={"TIMEZONE": "America/Bogota"},
+                )
+                send_digest.assert_not_called()
+            self.assertIsNone(user.last_weekly_digest_key)
+
+    def test_event_and_routine_email_reminders_are_sent_once(self):
+        self.register(self.client)
+        with self.app.app_context():
+            db_session = get_session()
+            user = db_session.scalar(select(User).where(User.email == "ana@example.com"))
+            user.email_notifications = True
+            user.quiet_hours_enabled = False
+            block = RoutineBlock(
+                user_id=user.id,
+                title="Práctica de guitarra",
+                start_time=time(9, 30),
+                duration_minutes=30,
+                day_of_week=0,
+            )
+            db_session.add(block)
+            db_session.commit()
+            mail_config = {
+                "TIMEZONE": "America/Bogota",
+                "SMTP_HOST": "smtp.example.com",
+                "SMTP_FROM": "planify@example.com",
+            }
+
+            with patch(
+                "planify.infrastructure.notification_scheduler.send_notification_email",
+                return_value=True,
+            ) as send_email:
+                process_due_notifications(
+                    db_session,
+                    now=datetime(2026, 5, 11, 9, 30),
+                    config=mail_config,
+                )
+                process_due_notifications(
+                    db_session,
+                    now=datetime(2026, 5, 11, 9, 31),
+                    config=mail_config,
+                )
+                self.assertEqual(send_email.call_count, 1)
+
+            notification = db_session.scalar(
+                select(Notification).where(
+                    Notification.dedupe_key == f"routine:{block.id}:2026-05-11:start"
+                )
+            )
+            self.assertIsNotNone(notification.email_sent_at)
+            self.assertEqual(notification.email_attempt_count, 1)
 
     def test_push_subscription_is_owned_and_browser_service_worker_is_available(self):
         app = create_app(PushTestConfig)
@@ -538,6 +620,10 @@ class PlanifyRoutesTest(unittest.TestCase):
 
     def test_settings_persist_profile_preferences_and_password(self):
         self.register(self.client)
+        settings_page = self.client.get("/settings")
+        self.assertIn("Correo por cada recordatorio".encode(), settings_page.data)
+        self.assertIn("hasta configurar SMTP".encode(), settings_page.data)
+        self.assertIn("El acceso con Google es independiente".encode(), settings_page.data)
         profile = self.client.post(
             "/settings/profile",
             data={
@@ -559,6 +645,7 @@ class PlanifyRoutesTest(unittest.TestCase):
                 "reminder_1_day_enabled": "on",
                 "routine_notify_start": "on",
                 "desktop_push_notifications": "on",
+                "email_notifications": "on",
                 "quiet_hours_enabled": "on",
                 "quiet_hours_start": "23:00",
                 "quiet_hours_end": "07:00",
@@ -582,6 +669,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             self.assertFalse(user.in_app_notifications)
             self.assertTrue(user.reminder_5_minutes_enabled)
             self.assertTrue(user.routine_notify_start)
+            self.assertTrue(user.email_notifications)
             self.assertTrue(user.desktop_push_notifications)
             self.assertTrue(user.quiet_hours_enabled)
             self.assertEqual(user.quiet_hours_start, "23:00")
@@ -760,7 +848,7 @@ class PlanifyRoutesTest(unittest.TestCase):
             )
         unverified_app.extensions["planify_engine"].dispose()
 
-    def test_existing_email_requires_an_explicit_google_account_link(self):
+    def test_google_sign_in_links_verified_email_to_existing_account(self):
         app = create_app(GoogleTestConfig)
         client = app.test_client()
         self.register(client, "ana@example.com")
@@ -778,17 +866,12 @@ class PlanifyRoutesTest(unittest.TestCase):
         }
         with patch.object(google, "authorize_access_token", return_value=profile):
             response = client.get("/auth/google/callback", follow_redirects=True)
-        self.assertIn("conecta Google desde Ajustes".encode(), response.data)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Agenda del día".encode(), response.data)
         with app.app_context():
-            self.assertIsNone(get_session().get(User, user_id).google_subject)
-
-        with client.session_transaction() as session:
-            session["google_link_user_id"] = user_id
-        with patch.object(google, "authorize_access_token", return_value=profile):
-            response = client.get("/auth/google/callback", follow_redirects=True)
-        self.assertIn("cuenta de Google quedó conectada".encode(), response.data)
-        with app.app_context():
-            self.assertEqual(get_session().get(User, user_id).google_subject, "google-subject-ana")
+            user = get_session().get(User, user_id)
+            self.assertEqual(user.google_subject, "google-subject-ana")
+            self.assertTrue(user.password_login_enabled)
         app.extensions["planify_engine"].dispose()
 
     def test_csrf_protects_state_changing_requests(self):
@@ -942,6 +1025,7 @@ class PlanifyRoutesTest(unittest.TestCase):
                 self.assertTrue(user.routine_notification_sounds)
                 self.assertTrue(user.quiet_hours_enabled)
                 self.assertEqual(user.quiet_hours_start, "22:00")
+                self.assertFalse(user.email_notifications)
             app.extensions["planify_engine"].dispose()
 
 

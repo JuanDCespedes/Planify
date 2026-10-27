@@ -47,7 +47,8 @@
       <div class="settings-card-heading"><div><h2 id="delivery-methods-heading">Métodos de Entrega</h2></div></div>
       <div class="settings-options">
         <label class="settings-toggle"><span>Notificaciones push en escritorio</span><input type="checkbox" name="desktop_push_notifications" role="switch" {{ "checked" if current_user.desktop_push_notifications else "" }}><span class="switch-track"></span></label>
-        <label class="settings-toggle"><span>Correos de resumen semanal</span><input type="checkbox" name="weekly_email_summaries" role="switch" {{ "checked" if current_user.weekly_email_summaries else "" }}><span class="switch-track"></span></label>
+        <label class="settings-toggle"><span>Correo por cada recordatorio de evento o rutina</span><input type="checkbox" name="email_notifications" role="switch" {{ "checked" if current_user.email_notifications else "" }}><span class="switch-track"></span></label>
+        <label class="settings-toggle"><span>Correos de resumen semanal (lunes, desde las 09:00)</span><input type="checkbox" name="weekly_email_summaries" role="switch" {{ "checked" if current_user.weekly_email_summaries else "" }}><span class="switch-track"></span></label>
         <label class="settings-toggle"><span>Notificaciones del sistema en la app</span><input type="checkbox" name="in_app_notifications" role="switch" {{ "checked" if current_user.in_app_notifications else "" }}><span class="switch-track"></span></label>
       </div>
       {% if push_configured %}
@@ -60,7 +61,9 @@
       <p class="settings-note">Los avisos en la app funcionan cuando Planify está abierto. Push requiere claves VAPID del servidor y el correo requiere SMTP; ambos canales se pueden configurar sin compartir secretos en el chat.</p>
       {% endif %}
       {% if not smtp_configured %}
-      <p class="settings-note">El resumen semanal por correo está guardado como preferencia, pero requiere que el administrador configure SMTP.</p>
+      <p class="settings-note" role="status">Correo no configurado: activar estas opciones no envía mensajes hasta configurar SMTP en el servidor. Para Gmail, sigue los pasos de correo con Gmail en README.md. El acceso con Google es independiente.</p>
+      {% else %}
+      <p class="settings-note">Los correos por recordatorio se envían cuando vence cada aviso. El resumen semanal (si lo activas) sale los lunes desde las 09:00, hora de Bogotá.</p>
       {% endif %}
       <p class="settings-note" role="status" aria-live="polite" data-browser-notification-status></p>
       <button class="button button-secondary" type="button" data-enable-browser-notifications>Permitir avisos del navegador</button>

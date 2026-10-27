@@ -53,6 +53,7 @@ def migrate_sqlite_user_ownership(engine):
                 ("routine_notify_5_minutes", "BOOLEAN NOT NULL DEFAULT 0"),
                 ("routine_notification_sounds", "BOOLEAN NOT NULL DEFAULT 1"),
                 ("desktop_push_notifications", "BOOLEAN NOT NULL DEFAULT 1"),
+                ("email_notifications", "BOOLEAN NOT NULL DEFAULT 0"),
                 ("weekly_email_summaries", "BOOLEAN NOT NULL DEFAULT 0"),
                 ("quiet_hours_enabled", "BOOLEAN NOT NULL DEFAULT 1"),
                 ("quiet_hours_start", "VARCHAR(5) NOT NULL DEFAULT '22:00'"),
@@ -73,6 +74,14 @@ def migrate_sqlite_user_ownership(engine):
                 if "notification_type" not in columns:
                     connection.execute(
                         text("ALTER TABLE notifications ADD COLUMN notification_type VARCHAR(20) NOT NULL DEFAULT 'general'")
+                    )
+                if "email_sent_at" not in columns:
+                    connection.execute(text("ALTER TABLE notifications ADD COLUMN email_sent_at DATETIME"))
+                if "email_last_attempt_at" not in columns:
+                    connection.execute(text("ALTER TABLE notifications ADD COLUMN email_last_attempt_at DATETIME"))
+                if "email_attempt_count" not in columns:
+                    connection.execute(
+                        text("ALTER TABLE notifications ADD COLUMN email_attempt_count INTEGER NOT NULL DEFAULT 0")
                     )
                 connection.execute(
                     text("CREATE UNIQUE INDEX IF NOT EXISTS uq_notifications_dedupe_key ON notifications (dedupe_key)")
@@ -119,6 +128,14 @@ def migrate_sqlite_user_ownership(engine):
             if "notification_type" not in notification_columns:
                 connection.execute(
                     text("ALTER TABLE notifications ADD COLUMN notification_type VARCHAR(20) NOT NULL DEFAULT 'general'")
+                )
+            if "email_sent_at" not in notification_columns:
+                connection.execute(text("ALTER TABLE notifications ADD COLUMN email_sent_at DATETIME"))
+            if "email_last_attempt_at" not in notification_columns:
+                connection.execute(text("ALTER TABLE notifications ADD COLUMN email_last_attempt_at DATETIME"))
+            if "email_attempt_count" not in notification_columns:
+                connection.execute(
+                    text("ALTER TABLE notifications ADD COLUMN email_attempt_count INTEGER NOT NULL DEFAULT 0")
                 )
             connection.execute(
                 text("CREATE UNIQUE INDEX IF NOT EXISTS uq_notifications_dedupe_key ON notifications (dedupe_key)")

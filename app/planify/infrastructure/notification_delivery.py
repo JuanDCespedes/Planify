@@ -25,6 +25,42 @@ def email_is_configured(config):
     return bool(config.get("SMTP_HOST") and config.get("SMTP_FROM"))
 
 
+def _send_email_message(message, config):
+    context = ssl.create_default_context()
+    host = config["SMTP_HOST"]
+    port = config.get("SMTP_PORT", 587)
+    username = config.get("SMTP_USERNAME", "")
+    password = config.get("SMTP_PASSWORD", "")
+    if config.get("SMTP_USE_SSL"):
+        with smtplib.SMTP_SSL(host, port, context=context, timeout=15) as server:
+            if username:
+                server.login(username, password)
+            server.send_message(message)
+    else:
+        with smtplib.SMTP(host, port, timeout=15) as server:
+            if config.get("SMTP_STARTTLS", True):
+                server.starttls(context=context)
+            if username:
+                server.login(username, password)
+            server.send_message(message)
+
+
+def send_notification_email(notification: Notification, user: User, config):
+    if not email_is_configured(config):
+        return False
+
+    message = EmailMessage()
+    message["Subject"] = f"Recordatorio de Planify: {notification.title}"
+    message["From"] = config["SMTP_FROM"]
+    message["To"] = user.email
+    message.set_content(
+        f"{notification.title}\n\n{notification.message}\n\n"
+        "Abre Planify para ver los detalles de tu agenda."
+    )
+    _send_email_message(message, config)
+    return True
+
+
 def send_push_notification(session: Session, notification: Notification, user: User, config, logger):
     if not user.desktop_push_notifications or not push_is_configured(config):
         return
@@ -82,23 +118,7 @@ def send_weekly_digest(user: User, events, config, logger):
         body = "\n".join(lines)
     message.set_content(body)
 
-    context = ssl.create_default_context()
-    host = config["SMTP_HOST"]
-    port = config.get("SMTP_PORT", 587)
-    username = config.get("SMTP_USERNAME", "")
-    password = config.get("SMTP_PASSWORD", "")
-    if config.get("SMTP_USE_SSL"):
-        with smtplib.SMTP_SSL(host, port, context=context, timeout=15) as server:
-            if username:
-                server.login(username, password)
-            server.send_message(message)
-    else:
-        with smtplib.SMTP(host, port, timeout=15) as server:
-            if config.get("SMTP_STARTTLS", True):
-                server.starttls(context=context)
-            if username:
-                server.login(username, password)
-            server.send_message(message)
+    _send_email_message(message, config)
     return True
 
 

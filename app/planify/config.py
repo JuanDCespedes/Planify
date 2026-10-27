@@ -1,7 +1,14 @@
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 
 
 class Config:
+    TIMEZONE = os.environ.get("PLANIFY_TIMEZONE", "America/Bogota")
     SECRET_KEY = os.environ.get("PLANIFY_SECRET_KEY", "dev-only-change-me")
     DATABASE_URL = os.environ.get("PLANIFY_DATABASE_URL")
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")

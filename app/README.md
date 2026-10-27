@@ -57,7 +57,7 @@ python -m unittest discover -s tests -v
 
 La configuración de notificaciones guarda por cuenta los recordatorios habilitados, los avisos de rutina, las horas de silencio y las preferencias de entrega. Un planificador revisa los avisos cada minuto y los guarda en SQLite con claves de deduplicación. Las horas silenciosas retrasan los avisos hasta el fin del intervalo.
 
-Los avisos del navegador requieren permiso y Planify abierto; el sonido de rutina solo puede reproducirse mientras la aplicación está abierta y el navegador lo permite. Las notificaciones push en segundo plano son opcionales y requieren claves VAPID y una suscripción concedida por cada navegador. Los resúmenes por correo se envían los lunes después de las 09:00 (hora local del servidor) y requieren SMTP. Si esas credenciales no están configuradas, Planify muestra que el canal sigue desactivado; no se guardan secretos en SQLite.
+Los avisos del navegador requieren permiso y Planify abierto; el sonido de rutina solo puede reproducirse mientras la aplicación está abierta y el navegador lo permite. Las notificaciones push en segundo plano son opcionales y requieren claves VAPID y una suscripción concedida por cada navegador. Si se activa en Ajustes, el correo por evento o rutina se envía al vencer cada recordatorio; los resúmenes semanales son un control separado y se envían los lunes desde las 09:00, hora de Bogotá por defecto (`PLANIFY_TIMEZONE`). Ambos requieren SMTP configurado en el servidor. Sin SMTP configurado no se enviarán correos. Los intentos fallidos se reintentan hasta cinco veces, con 15 minutos entre intentos. No se guardan secretos en SQLite.
 
 Para activar push, genera el par VAPID dentro del entorno virtual:
 
@@ -67,7 +67,31 @@ python -c "from planify.infrastructure.notification_delivery import generate_vap
 
 La primera línea es la clave privada y la segunda la pública. Guárdalas solo en variables de entorno locales, junto con `PLANIFY_VAPID_CLAIMS_EMAIL=mailto:tu-correo@example.com`. Reinicia Planify, activa y guarda la opción push en Ajustes y luego pulsa **Activar en este navegador**. La aplicación requiere HTTPS (excepto `localhost`) para service workers y push.
 
-Para correo, configura `PLANIFY_SMTP_HOST`, `PLANIFY_SMTP_PORT`, `PLANIFY_SMTP_FROM` y, si el proveedor los exige, `PLANIFY_SMTP_USERNAME` y `PLANIFY_SMTP_PASSWORD`. Usa `PLANIFY_SMTP_USE_SSL=true` para SSL directo; de lo contrario se usa STARTTLS cuando `PLANIFY_SMTP_STARTTLS=true`. Las variables deben establecerse en la terminal antes de iniciar Planify. Nunca publiques credenciales.
+### Correo con Gmail
+
+El botón de inicio de sesión con Google no habilita el envío de correo: son configuraciones independientes. Para que Planify envíe recordatorios desde una cuenta de Gmail:
+
+1. Activa la verificación en dos pasos en la cuenta de Google que enviará los mensajes.
+2. En la configuración de seguridad de esa cuenta, genera una **contraseña de aplicación**. No uses la contraseña normal de Google ni la compartas por chat.
+3. Abre `.env` en la raíz del proyecto y agrega estas variables sin borrar las de Google OAuth existentes. Reemplaza el correo y el valor de ejemplo localmente:
+
+   ```dotenv
+   PLANIFY_SMTP_HOST=smtp.gmail.com
+   PLANIFY_SMTP_PORT=587
+   PLANIFY_SMTP_USERNAME=tu-cuenta@gmail.com
+   PLANIFY_SMTP_PASSWORD=contraseña-de-aplicación
+   PLANIFY_SMTP_FROM=tu-cuenta@gmail.com
+   PLANIFY_SMTP_USE_SSL=false
+   PLANIFY_SMTP_STARTTLS=true
+   ```
+
+   Usa la contraseña de aplicación de 16 caracteres (sin espacios). Mantén `.env` privado y no la envíes por chat.
+4. Reinicia Planify. En **Configuración → Métodos de entrega**, activa y guarda **Correo por cada recordatorio de evento o rutina**. El resumen semanal es opcional y se controla por separado.
+5. Prueba creando un evento futuro con recordatorio habilitado. El correo se envía al vencer ese recordatorio; las horas de **No molestar** pueden retrasarlo. El correo de prueba no es retroactivo para avisos de más de un día.
+
+Si Gmail rechaza la conexión, confirma que la verificación en dos pasos está activa, que la contraseña de aplicación es correcta y que el equipo puede conectarse a `smtp.gmail.com` por el puerto 587. Planify reintenta los envíos fallidos hasta cinco veces, con 15 minutos entre intentos.
+
+Para otros proveedores, configura `PLANIFY_SMTP_HOST`, `PLANIFY_SMTP_PORT`, `PLANIFY_SMTP_FROM` y, si se requieren, `PLANIFY_SMTP_USERNAME` y `PLANIFY_SMTP_PASSWORD`. Usa `PLANIFY_SMTP_USE_SSL=true` para SSL directo; de lo contrario se usa STARTTLS cuando `PLANIFY_SMTP_STARTTLS=true`. Las variables deben establecerse antes de iniciar Planify y el servicio debe reiniciarse para tomarlas. Nunca publiques credenciales.
 
 El planificador integrado está pensado para una sola instancia del proceso web. En despliegues con varios workers, desactívalo con `PLANIFY_ENABLE_NOTIFICATION_SCHEDULER=false` y ejecuta un único proceso scheduler dedicado para evitar tareas de correo duplicadas. Para extraerlo más adelante, `process_due_notifications` es el punto de entrada independiente de Flask y `NotificationService` puede publicar eventos a un adaptador o cola de microservicio.
 
@@ -79,13 +103,22 @@ El planificador integrado está pensado para una sola instancia del proceso web.
 - Los formularios POST requieren token CSRF. Las rutas de acceso y registro tienen límites de intentos.
 - El registro es abierto: los visitantes pueden crear su propia cuenta. Los datos del planificador se filtran por el identificador de la sesión.
 - Google OAuth se integra con OpenID Connect. El botón explica la configuración pendiente y solo permite iniciar el flujo cuando hay credenciales OAuth locales.
-- El inicio de sesión con Google exige correo verificado; no se enlazan cuentas existentes automáticamente. Para enlazarlas, inicia sesión y conecta Google desde Ajustes usando el mismo correo.
+- El inicio de sesión con Google exige correo verificado. Si ese correo coincide con una cuenta existente, Planify conecta automáticamente el Google verificado y permite iniciar sesión por ambos métodos.
 - Los recordatorios y notificaciones son privados por cuenta; push y SMTP son canales opcionales configurados por el administrador.
 - En instalaciones existentes, los datos antiguos sin propietario no se muestran ni se asignan a la primera cuenta que se registre.
 
 ### Configurar el acceso con Google
 
 Google requiere un cliente OAuth de tipo **Aplicación web**. Los secretos son tuyos: no los compartas por chat y no los publiques en GitHub.
+
+Para la ejecución local de desarrollo, crea o edita `.env` en la raíz del proyecto y agrega las credenciales del cliente OAuth:
+
+```dotenv
+GOOGLE_CLIENT_ID=tu-id-de-cliente
+GOOGLE_CLIENT_SECRET=tu-secreto-de-cliente
+```
+
+`.env` está excluido de Git. Reinicia Planify después de guardar los cambios; no uses las credenciales de producción en el repositorio ni en `.env.example`.
 
 1. En [Google Cloud Console](https://console.cloud.google.com/), crea o selecciona un proyecto y configura la pantalla de consentimiento OAuth. Para una prueba personal, selecciona el tipo externo y añade tu cuenta como usuario de prueba.
 2. En **Clientes**, crea un cliente OAuth de tipo **Aplicación web**. No hacen falta claves API ni otros permisos; Planify solo pide `openid`, `email` y `profile`.
@@ -119,7 +152,7 @@ Google requiere un cliente OAuth de tipo **Aplicación web**. Los secretos son t
 
 6. Abre el inicio de sesión y elige **Continuar con Google**. Si la pantalla de consentimiento está en modo de prueba, solo podrán ingresar las cuentas añadidas como usuarios de prueba.
 
-Authlib valida el estado OAuth y la firma, audiencia, emisor y nonce del ID token; la aplicación solo crea una cuenta si Google confirma el correo. Un correo que ya pertenezca a otra cuenta requiere iniciar sesión primero y conectar Google en Ajustes. Las cuentas creadas solo con Google pueden crear una contraseña desde Ajustes para habilitar el inicio por correo y contraseña.
+Authlib valida el estado OAuth y la firma, audiencia, emisor y nonce del ID token; la aplicación solo crea una cuenta o conecta Google a una cuenta existente si Google confirma el correo. Si el mismo correo ya tiene cuenta, el inicio con Google abre esa cuenta y mantiene disponible el acceso por contraseña. Las cuentas creadas solo con Google pueden crear una contraseña desde Ajustes para habilitar el inicio por correo y contraseña.
 
 ## Hosting gratuito en PythonAnywhere
 

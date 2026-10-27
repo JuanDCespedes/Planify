@@ -13,7 +13,8 @@
       {% for item in notifications %}
         <article class="notification-item {{ 'is-unread' if not item.is_read else '' }}">
           <div class="notification-symbol">{{ "✦" if not item.is_read else "✓" }}</div>
-          <div class="notification-content"><div class="notification-title-row"><h3>{{ item.title }}</h3>{% if not item.is_read %}<span class="new-badge">Nuevo</span>{% endif %}</div><p>{{ item.message }}</p><time datetime="{{ item.created_at.isoformat() }}">{{ item.created_at.strftime("%d/%m · %H:%M") }}</time></div>
+          {% set local_created_at = local_datetime(item.created_at) %}
+          <div class="notification-content"><div class="notification-title-row"><h3>{{ item.title }}</h3>{% if not item.is_read %}<span class="new-badge">Nuevo</span>{% endif %}</div><p>{{ item.message }}</p><time datetime="{{ local_created_at.isoformat() }}">{{ format_local_datetime(item.created_at) }}</time></div>
           <div class="notification-actions">
             {% if not item.is_read %}<form method="post" action="{{ url_for('main.mark_notification_read', notification_id=item.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="text-button" type="submit">Marcar leída</button></form>{% endif %}
             <form method="post" action="{{ url_for('main.dismiss_notification', notification_id=item.id) }}" data-confirm="¿Descartar esta notificación?"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="small-action" type="submit" aria-label="Descartar {{ item.title }}">×</button></form>

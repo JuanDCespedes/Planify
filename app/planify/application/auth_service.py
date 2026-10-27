@@ -87,10 +87,18 @@ class AuthenticationService:
         if user:
             return user, []
 
-        if self.users.by_email(normalized_email):
-            return None, [
-                "Ese correo ya tiene una cuenta. Inicia sesión con tu contraseña y conecta Google desde Ajustes."
-            ]
+        user = self.users.by_email(normalized_email)
+        if user:
+            user.google_subject = google_subject
+            try:
+                self.session.commit()
+            except IntegrityError:
+                self.session.rollback()
+                linked_user = self.users.by_google_subject(google_subject)
+                if linked_user:
+                    return linked_user, []
+                raise
+            return user, []
 
         user = User(
             email=normalized_email,

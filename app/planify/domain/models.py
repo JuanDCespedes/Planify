@@ -32,6 +32,7 @@ class User(UserMixin, Base):
     routine_notify_5_minutes: Mapped[bool] = mapped_column(Boolean, default=False)
     routine_notification_sounds: Mapped[bool] = mapped_column(Boolean, default=True)
     desktop_push_notifications: Mapped[bool] = mapped_column(Boolean, default=True)
+    email_notifications: Mapped[bool] = mapped_column(Boolean, default=False)
     weekly_email_summaries: Mapped[bool] = mapped_column(Boolean, default=False)
     quiet_hours_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     quiet_hours_start: Mapped[str] = mapped_column(String(5), default="22:00")
@@ -94,6 +95,9 @@ class Notification(Base):
     message: Mapped[str] = mapped_column(Text)
     dedupe_key: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True)
     notification_type: Mapped[str] = mapped_column(String(20), default="general")
+    email_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    email_last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    email_attempt_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),

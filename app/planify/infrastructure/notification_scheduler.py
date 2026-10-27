@@ -1,6 +1,7 @@
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone as utc_timezone
 import logging
 import smtplib
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import or_, select
@@ -11,6 +12,7 @@ from planify.domain.rules import REMINDER_PREFERENCE_FIELDS
 from planify.infrastructure.notification_delivery import (
     email_is_configured,
     push_is_configured,
+    send_notification_email,
     send_push_notification,
     send_weekly_digest,
 )
@@ -26,6 +28,8 @@ REMINDER_OFFSETS = {
 }
 DELIVERY_GRACE = timedelta(minutes=2)
 LOOKBACK = timedelta(days=1)
+EMAIL_RETRY_AFTER = timedelta(minutes=15)
+MAX_EMAIL_ATTEMPTS = 5
 
 
 def _quiet_end_after(user, scheduled_at):
@@ -62,7 +66,7 @@ def _notification_due(user, scheduled_at, now):
 def _persist_notification(session, user, key, title, message, notification_type, config, logger):
     if not user.in_app_notifications and not (
         user.desktop_push_notifications and push_is_configured(config)
-    ):
+    ) and not (user.email_notifications and email_is_configured(config)):
         return None
 
     existing = session.scalar(select(Notification.id).where(Notification.dedupe_key == key))
@@ -209,17 +213,66 @@ def _process_weekly_digests(session, now, config, logger):
             logger.error("Weekly email failed for user %s: %s", user.id, error)
 
 
+def _process_pending_notification_emails(session, now, config, logger):
+    if not email_is_configured(config):
+        return
+
+    zone = ZoneInfo(config.get("TIMEZONE", "America/Bogota"))
+    aware_now = now.replace(tzinfo=zone) if now.tzinfo is None else now
+    utc_now = aware_now.astimezone(utc_timezone.utc).replace(tzinfo=None)
+    pending = session.scalars(
+        select(Notification)
+        .join(User, Notification.user_id == User.id)
+        .where(
+            User.email_notifications.is_(True),
+            Notification.notification_type.in_(("event", "routine")),
+            Notification.email_sent_at.is_(None),
+            Notification.email_attempt_count < MAX_EMAIL_ATTEMPTS,
+            Notification.created_at >= utc_now - LOOKBACK,
+            or_(
+                Notification.email_last_attempt_at.is_(None),
+                Notification.email_last_attempt_at <= utc_now - EMAIL_RETRY_AFTER,
+            ),
+        )
+        .order_by(Notification.created_at)
+        .limit(100)
+    ).all()
+    for notification in pending:
+        user = session.get(User, notification.user_id)
+        if user is None:
+            continue
+        notification.email_attempt_count += 1
+        notification.email_last_attempt_at = utc_now
+        session.commit()
+        try:
+            if send_notification_email(notification, user, config):
+                notification.email_sent_at = utc_now
+                session.commit()
+        except (OSError, smtplib.SMTPException, ValueError) as error:
+            session.rollback()
+            logger.error(
+                "Notification email failed for user %s, notification %s (attempt %s/%s): %s",
+                user.id,
+                notification.id,
+                notification.email_attempt_count,
+                MAX_EMAIL_ATTEMPTS,
+                error,
+            )
+
+
 def process_due_notifications(session, now=None, config=None, logger=None):
-    now = now or datetime.now().replace(second=0, microsecond=0)
     config = config or {}
+    timezone = ZoneInfo(config.get("TIMEZONE", "America/Bogota"))
+    now = now or datetime.now(timezone).replace(tzinfo=None, second=0, microsecond=0)
     logger = logger or logging.getLogger("planify.notifications")
     _process_event_reminders(session, now, config, logger)
     _process_routine_reminders(session, now, config, logger)
+    _process_pending_notification_emails(session, now, config, logger)
     _process_weekly_digests(session, now, config, logger)
 
 
 def start_notification_scheduler(app):
-    scheduler = BackgroundScheduler(timezone=app.config.get("TIMEZONE", "UTC"))
+    scheduler = BackgroundScheduler(timezone=app.config.get("TIMEZONE", "America/Bogota"))
     scheduler.add_job(
         _scheduled_job,
         trigger="interval",

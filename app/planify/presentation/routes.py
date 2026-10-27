@@ -3,8 +3,9 @@ import binascii
 import calendar
 import secrets
 import time as clock
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from authlib.integrations.base_client.errors import OAuthError
 from flask import (
@@ -59,7 +60,21 @@ WEEKDAYS = ("Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom")
 
 @main.app_context_processor
 def template_helpers():
-    return {"category_labels": {}}
+    def local_datetime(value):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(
+            ZoneInfo(current_app.config.get("TIMEZONE", "America/Bogota"))
+        )
+
+    def format_local_datetime(value, format_string="%d/%m · %H:%M"):
+        return local_datetime(value).strftime(format_string)
+
+    return {
+        "category_labels": {},
+        "format_local_datetime": format_local_datetime,
+        "local_datetime": local_datetime,
+    }
 
 
 @main.before_request
@@ -161,10 +176,6 @@ def login():
         google_configured=bool(
             current_app.config.get("GOOGLE_CLIENT_ID")
             and current_app.config.get("GOOGLE_CLIENT_SECRET")
-        ),
-        push_configured=push_is_configured(current_app.config),
-        smtp_configured=bool(
-            current_app.config.get("SMTP_HOST") and current_app.config.get("SMTP_FROM")
         ),
     )
 
@@ -665,6 +676,10 @@ def settings():
             current_app.config.get("GOOGLE_CLIENT_ID")
             and current_app.config.get("GOOGLE_CLIENT_SECRET")
         ),
+        push_configured=push_is_configured(current_app.config),
+        smtp_configured=bool(
+            current_app.config.get("SMTP_HOST") and current_app.config.get("SMTP_FROM")
+        ),
     )
 
 
@@ -767,6 +782,7 @@ def update_preferences():
         "routine_notify_5_minutes",
         "routine_notification_sounds",
         "desktop_push_notifications",
+        "email_notifications",
         "weekly_email_summaries",
         "in_app_notifications",
     ):
