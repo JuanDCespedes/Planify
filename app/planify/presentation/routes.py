@@ -369,14 +369,18 @@ def event_form(event_id=None):
 
     categories = CategoryService(session, current_user.id).list_all()
     default_category = next(
-        (category.id for category in categories if category.color == "work"),
-        categories[0].id if categories else "",
+        (category.name for category in categories if category.color == "work"),
+        categories[0].name if categories else "",
     )
     values = {
         "title": event.title or "",
         "event_date": event.event_date.isoformat() if event.event_date else date.today().isoformat(),
         "start_time": event.start_time.strftime("%H:%M") if event.start_time else "",
-        "category": str(event.category_id or default_category),
+        "category": (
+            event.category_item.name
+            if event.category_item
+            else default_category
+        ),
         "reminder": event.reminder or current_user.default_reminder,
     }
     errors = []
@@ -401,7 +405,7 @@ def event_form(event_id=None):
             values["title"],
             parsed_date,
             parsed_time,
-            int(values["category"]) if values["category"].isdigit() else None,
+            values["category"],
             values["reminder"],
         )
         if not errors:

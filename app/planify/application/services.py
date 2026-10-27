@@ -29,10 +29,45 @@ class EventService:
         return self.events.between(start_date, end_date, self.user_id)
 
     def save(self, event, title, event_date, start_time, category, reminder):
-        errors = validate_event(title, event_date, start_time, category, reminder)
-        category_item = self.events.session.get(Category, category) if isinstance(category, int) else None
-        if category_item is None or category_item.user_id != self.user_id:
-            errors.append("Selecciona una categoría de tu cuenta.")
+        is_category_id = isinstance(category, int)
+        errors = validate_event(
+            title,
+            event_date,
+            start_time,
+            category if is_category_id else 1,
+            reminder,
+        )
+        category_repository = CategoryRepository(self.session)
+        category_item = None
+        is_new_category = False
+        if is_category_id:
+            category_item = category_repository.get(category, self.user_id)
+            if category_item is None:
+                errors.append("Selecciona una categoría de tu cuenta.")
+        elif isinstance(category, str):
+            category_name = category.strip()
+            category_item = category_repository.by_name(category_name, self.user_id)
+            if category_item is None and category_name.isdigit():
+                possible_category = self.session.get(Category, int(category_name))
+                if possible_category is not None:
+                    if possible_category.user_id == self.user_id:
+                        category_item = possible_category
+                    else:
+                        errors.append("Selecciona una categoría de tu cuenta.")
+            if category_item is None:
+                if not errors:
+                    category_errors = validate_category(category_name, "other")
+                    errors.extend(category_errors)
+                if not errors:
+                    category_item = Category(
+                        user_id=self.user_id,
+                        name=category_name,
+                        color="other",
+                    )
+                    is_new_category = True
+        else:
+            errors.append("Escribe o selecciona una categoría.")
+
         reminder_preference = REMINDER_PREFERENCE_FIELDS.get(reminder)
         user = self.session.get(User, self.user_id)
         if (
@@ -43,6 +78,13 @@ class EventService:
             errors.append("Ese recordatorio está desactivado en tu configuración.")
         if errors:
             return errors
+        if is_new_category:
+            category_repository.add(category_item)
+            try:
+                self.session.flush()
+            except IntegrityError:
+                self.session.rollback()
+                return ["Ya existe una categoría con ese nombre."]
         event.title = title.strip()
         event.event_date = event_date
         event.start_time = start_time
@@ -52,11 +94,15 @@ class EventService:
             "personal": "personal",
             "health": "salud",
         }.get(category_item.color, "otro")
-        event.category_id = category_item.id
+        event.category_item = category_item
         event.reminder = reminder
         event.user_id = self.user_id
         self.events.add(event)
-        self.session.commit()
+        try:
+            self.session.commit()
+        except IntegrityError:
+            self.session.rollback()
+            return ["No se pudo guardar la categoría. Comprueba si ya existe y vuelve a intentarlo."]
         return []
 
     def delete(self, event):

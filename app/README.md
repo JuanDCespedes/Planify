@@ -53,7 +53,7 @@ python -m unittest discover -s tests -v
 - `planify/domain/`: entidades, validaciones y almacenamiento de contraseñas con hash scrypt de Werkzeug.
 - `planify/infrastructure/`: base SQLite, migración de datos existentes, repositorios y protección CSRF.
 - `planify/templates/` y `planify/static/`: interfaz adaptable en español, estilos y tema local.
-- Las categorías son entidades privadas de cada cuenta; los eventos existentes conservan su categoría durante la migración.
+- Las categorías son privadas de cada cuenta. Al crear o editar un evento, puedes elegir una categoría existente o escribir un tema nuevo; Planify lo guarda en tus categorías personales y lo reutiliza en tus próximos eventos. También puedes cambiar el color y el nombre desde Ajustes. Los eventos existentes conservan su categoría durante la migración.
 
 La configuración de notificaciones guarda por cuenta los recordatorios habilitados, los avisos de rutina, las horas de silencio y las preferencias de entrega. Un planificador revisa los avisos cada minuto y los guarda en SQLite con claves de deduplicación. Las horas silenciosas retrasan los avisos hasta el fin del intervalo.
 

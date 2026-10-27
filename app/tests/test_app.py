@@ -354,7 +354,7 @@ class PlanifyRoutesTest(unittest.TestCase):
                 "title": "Reunión de prueba",
                 "event_date": "2030-04-10",
                 "start_time": "14:30",
-                "category": str(work_category_id),
+                "category": "Trabajo",
                 "reminder": "15m",
             },
             follow_redirects=True,
@@ -372,7 +372,7 @@ class PlanifyRoutesTest(unittest.TestCase):
                 "title": "Reunión actualizada",
                 "event_date": "2030-04-11",
                 "start_time": "15:00",
-                "category": str(personal_category_id),
+                "category": "Personal",
                 "reminder": "30m",
             },
             follow_redirects=True,
@@ -397,6 +397,50 @@ class PlanifyRoutesTest(unittest.TestCase):
         self.assertEqual(self.client.post(f"/notifications/{notification_id}/read").status_code, 302)
         self.assertEqual(self.client.post(f"/notifications/{notification_id}/dismiss").status_code, 302)
         self.assertEqual(self.client.get("/settings").status_code, 200)
+
+    def test_event_form_creates_and_reuses_typed_personal_categories(self):
+        self.register(self.client)
+        for title, category in (
+            ("Preparar examen", "Universidad"),
+            ("Leer apuntes", " universidad "),
+        ):
+            response = self.client.post(
+                "/events/new",
+                data={
+                    "title": title,
+                    "event_date": "2030-04-10",
+                    "start_time": "14:30",
+                    "category": category,
+                    "reminder": "15m",
+                },
+                follow_redirects=True,
+            )
+            self.assertEqual(response.status_code, 200)
+
+        with self.app.app_context():
+            db_session = get_session()
+            user = db_session.scalar(select(User).where(User.email == "ana@example.com"))
+            custom_categories = db_session.scalars(
+                select(Category).where(
+                    Category.user_id == user.id,
+                    Category.name == "Universidad",
+                )
+            ).all()
+            self.assertEqual(len(custom_categories), 1)
+            self.assertEqual(custom_categories[0].color, "other")
+            assigned_events = db_session.scalars(
+                select(Event).where(
+                    Event.user_id == user.id,
+                    Event.title.in_(("Preparar examen", "Leer apuntes")),
+                )
+            ).all()
+            self.assertEqual(len(assigned_events), 2)
+            self.assertTrue(
+                all(event.category_id == custom_categories[0].id for event in assigned_events)
+            )
+
+        form = self.client.get("/events/new")
+        self.assertIn(b'<option value="Universidad">', form.data)
 
     def test_invalid_event_and_foreign_redirect_are_rejected(self):
         self.register(self.client)
