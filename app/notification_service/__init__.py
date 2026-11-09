@@ -1,0 +1,1 @@
+"""Microservicio independiente para la entrega de notificaciones Planify."""

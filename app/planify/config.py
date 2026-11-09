@@ -1,4 +1,4 @@
-"""Carga la configuración de Planify desde variables de entorno y `.env`."""
+"""Carga la configuración de Planify desde variables de entorno."""
 
 import os
 from pathlib import Path
@@ -10,7 +10,7 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 
 
 class Config:
-    """Valores predeterminados y ajustes de seguridad para Flask y sus servicios."""
+    """Valores predeterminados y ajustes opcionales de la aplicación."""
 
     TIMEZONE = os.environ.get("PLANIFY_TIMEZONE", "America/Bogota")
     SECRET_KEY = os.environ.get("PLANIFY_SECRET_KEY", "dev-only-change-me")
@@ -28,6 +28,21 @@ class Config:
     SMTP_FROM = os.environ.get("PLANIFY_SMTP_FROM", "")
     SMTP_USE_SSL = os.environ.get("PLANIFY_SMTP_USE_SSL", "").casefold() == "true"
     SMTP_STARTTLS = os.environ.get("PLANIFY_SMTP_STARTTLS", "true").casefold() == "true"
+    MICROSERVICES_ENABLED = os.environ.get(
+        "PLANIFY_MICROSERVICES_ENABLED", "true"
+    ).casefold() == "true"
+    SERVICE_TOKEN = os.environ.get(
+        "PLANIFY_SERVICE_TOKEN", os.environ.get("PLANIFY_DELIVERY_SERVICE_TOKEN", "")
+    )
+    IDENTITY_SERVICE_URL = os.environ.get("IDENTITY_SERVICE_URL", "http://127.0.0.1:8101")
+    PLANNING_SERVICE_URL = os.environ.get("PLANNING_SERVICE_URL", "http://127.0.0.1:8102")
+    NOTIFICATION_SERVICE_URL = os.environ.get("NOTIFICATION_SERVICE_URL", "http://127.0.0.1:8100")
+    SERVICE_REQUEST_TIMEOUT = float(os.environ.get("PLANIFY_SERVICE_REQUEST_TIMEOUT", "5"))
+    DELIVERY_SERVICE_URL = os.environ.get("PLANIFY_DELIVERY_SERVICE_URL", "").rstrip("/")
+    DELIVERY_SERVICE_TOKEN = os.environ.get("PLANIFY_DELIVERY_SERVICE_TOKEN", "")
+    DELIVERY_EMAIL_ENABLED = os.environ.get(
+        "PLANIFY_DELIVERY_EMAIL_ENABLED", "false"
+    ).casefold() == "true"
     ENABLE_NOTIFICATION_SCHEDULER = os.environ.get(
         "PLANIFY_ENABLE_NOTIFICATION_SCHEDULER", "true"
     ).casefold() == "true"

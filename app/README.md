@@ -2,15 +2,16 @@
 
 Planify es una aplicación de planificación personal en español. Cada cuenta tiene sus propios eventos, calendario, bloques de rutina y notificaciones. La interfaz adaptable usa los detalles coral/naranja del prototipo de acceso y configuración; el tema oscuro se guarda en el navegador.
 
-Esta guía cubre instalación, configuración, uso y despliegue. Para conocer las capas, los modelos, los flujos internos y las responsabilidades de los módulos, consulta la [documentación técnica](docs/architecture.md). Los comandos de esta guía se ejecutan desde esta carpeta `app/` del repositorio.
+## Documentación
+
+- [Manual de usuario](docs/manual-usuario.md): cuentas, eventos, calendario, rutinas y notificaciones.
+- [Arquitectura técnica](docs/arquitectura.md): capas, rutas, flujos, base de datos y despliegue.
+- [Trazabilidad de requisitos](docs/trazabilidad.md): relación entre historias, requisitos y estado actual.
 
 ## Ejecutar en Windows
 
 ### Requisitos
 
-- Windows 10/11
-- Python 3.10 o posterior
-- Visual Studio Code y la extensión oficial de Python (recomendados)
 
 ### Instalación
 
@@ -30,15 +31,35 @@ Esta guía cubre instalación, configuración, uso y despliegue. Para conocer la
    python -m pip install -r requirements.txt
    ```
 
-4. Inicia Planify:
+4. El lanzador genera un token interno aleatorio para esos cuatro procesos. No hace falta guardarlo en `.env`.
+
+5. Inicia los cuatro procesos en segundo plano desde PowerShell:
 
    ```powershell
-   python app.py
+   .\start-planify.ps1
    ```
 
-5. Visita [http://127.0.0.1:5000](http://127.0.0.1:5000), crea tu cuenta y entra al planificador.
+   Si PowerShell bloquea el script, permite su ejecución solo en esa terminal con `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` y vuelve a ejecutarlo. Los registros se guardan en `%TEMP%\Planify\logs`.
 
-La base SQLite se crea en `instance/planify.db`. Al registrarse, cada cuenta recibe sus propios datos de ejemplo; los cambios de otras cuentas no aparecen en su espacio.
+6. Visita [http://127.0.0.1:5000](http://127.0.0.1:5000), crea tu cuenta y entra al planificador. Para detener únicamente los procesos iniciados por el lanzador, ejecuta `powershell -ExecutionPolicy Bypass -File stop-planify.ps1` desde la raíz del proyecto.
+
+## Servicios y migración de datos
+
+Planify web sirve la interfaz y mantiene la sesión. `identity_service` posee cuentas, contraseñas y preferencias; `planning_service` posee eventos, categorías y rutinas; `notification_service` posee avisos y suscripciones, ejecuta el scheduler y realiza la entrega SMTP/Web Push. Cada dominio tiene su propia SQLite y API REST interna. Los servicios no comparten tablas; el gateway envía DTO JSON autenticados con un token Bearer.
+
+Si ya tienes datos en `instance/planify.db`, respáldala y ejecuta esta migración antes de iniciar los servicios por primera vez:
+
+```powershell
+python migrate_to_microservices.py
+```
+
+La herramienta copia únicamente filas con propietario a `identity.db`, `planning.db` y `notifications.db`, conserva los identificadores y **no modifica ni elimina la base original**. Se puede volver a ejecutar: omite identificadores ya copiados. En Docker, el perfil de migración monta la base de origen en solo lectura:
+
+```powershell
+docker compose --profile migration run --rm migrate
+```
+
+Configura SMTP y VAPID en `.env`; esas credenciales se entregan solo al servicio de notificaciones. Para habilitar el correo por recordatorio, usa `PLANIFY_DELIVERY_EMAIL_ENABLED=true`.
 
 ## Pruebas
 
@@ -50,10 +71,12 @@ python -m unittest discover -s tests -v
 
 ## Arquitectura
 
-- `planify/presentation/`: rutas Flask, acceso, registro, sesiones y plantillas Jinja.
-- `planify/application/`: casos de uso y servicios de autenticación, agenda, rutina y notificaciones.
-- `planify/domain/`: entidades, validaciones y almacenamiento de contraseñas con hash scrypt de Werkzeug.
-- `planify/infrastructure/`: base SQLite, migración de datos existentes, repositorios y protección CSRF.
+- `planify/presentation/`: rutas Flask del gateway y plantillas Jinja.
+- `identity_service/`: API y base de datos de cuentas, credenciales y preferencias.
+- `planning_service/`: API y base de datos de eventos, categorías y rutinas.
+- `notification_service/`: API, base de avisos, scheduler y entrega de correo/push.
+- `planify/infrastructure/microservices.py`: clientes HTTP internos; el gateway no consulta las bases de los servicios.
+- `notification_service/`: microservicio HTTP interno para entregar correo y Web Push; no accede a la base principal.
 - `planify/templates/` y `planify/static/`: interfaz adaptable en español, estilos y tema local.
 - Las categorías son privadas de cada cuenta. Al crear o editar un evento, puedes elegir una categoría existente o escribir un tema nuevo; Planify lo guarda en tus categorías personales y lo reutiliza en tus próximos eventos. También puedes cambiar el color y el nombre desde Ajustes. Los eventos existentes conservan su categoría durante la migración.
 
@@ -128,15 +151,17 @@ GOOGLE_CLIENT_SECRET=tu-secreto-de-cliente
 
    ```text
    http://127.0.0.1:5000
+   https://planify.example.com
    ```
 
 4. Añade estos URI de redirección autorizados (deben coincidir exactamente):
 
    ```text
    http://127.0.0.1:5000/auth/google/callback
+   https://planify.example.com/auth/google/callback
    ```
 
-   Si accedes mediante un dominio HTTPS, añade también ese origen y el URI de retorno correspondiente, por ejemplo `https://planify.example.com` y `https://planify.example.com/auth/google/callback`. Sustituye el ejemplo por tu dominio real; los valores registrados en Google deben coincidir exactamente con los que usa la aplicación.
+   Sustituye `planify.example.com` por el dominio HTTPS de tu despliegue. Los valores registrados en Google Cloud deben coincidir exactamente con el dominio y la ruta que usa la aplicación.
 
 5. Copia el **ID de cliente** y el **secreto de cliente** en PowerShell, dentro de la misma terminal desde la que iniciarás Planify:
 
@@ -146,7 +171,7 @@ GOOGLE_CLIENT_SECRET=tu-secreto-de-cliente
    python app.py
    ```
 
-   Para acceso local directo, deja `GOOGLE_REDIRECT_URI` sin definir. Si Planify está detrás de un proxy HTTPS o túnel, define `GOOGLE_REDIRECT_URI` con la dirección pública exacta registrada en Google Cloud; algunos proxies no comunican el esquema HTTPS al servidor y la detección automática produciría una URL incorrecta.
+   El lanzador local fija `http://127.0.0.1:5000/auth/google/callback`. En Google Cloud, registra exactamente `http://127.0.0.1:5000` como origen autorizado y `http://127.0.0.1:5000/auth/google/callback` como URI de redirección. Si usas un dominio HTTPS o Tailscale Funnel, registra ese origen y callback exactos y configura `GOOGLE_REDIRECT_URI` para esa ejecución; no reutilices una URL de túnel anterior.
 
    Cierra y vuelve a iniciar Planify después de añadir o cambiar variables. Al usar Docker, pon las variables en tu archivo local `.env`, que está excluido de Git; nunca las pegues en `.env.example` ni en el repositorio.
 
@@ -154,9 +179,9 @@ GOOGLE_CLIENT_SECRET=tu-secreto-de-cliente
 
 Authlib valida el estado OAuth y la firma, audiencia, emisor y nonce del ID token; la aplicación solo crea una cuenta o conecta Google a una cuenta existente si Google confirma el correo. Si el mismo correo ya tiene cuenta, el inicio con Google abre esa cuenta y mantiene disponible el acceso por contraseña. Las cuentas creadas solo con Google pueden crear una contraseña desde Ajustes para habilitar el inicio por correo y contraseña.
 
-## Hosting gratuito en PythonAnywhere
+## PythonAnywhere (solo gateway)
 
-PythonAnywhere tiene un plan gratuito para una app pequeña como esta. Consulta sus [planes actuales](https://www.pythonanywhere.com/pricing/) antes de registrarte: el plan gratuito es limitado (incluye un máximo de 512 MB de espacio y 100 segundos de CPU al día) y restringe las conexiones salientes. Planify no necesita conexiones salientes para sus funciones actuales. El proyecto y SQLite quedan dentro de tu directorio personal; no uses este plan para datos sensibles ni para una app de alto tráfico.
+`pythonanywhere_wsgi.py` inicia únicamente el gateway web. No despliega identidad, planificación ni notificaciones. Para usar esta topología, primero debes alojar los tres servicios API en procesos accesibles y persistentes, configurar sus URL y `PLANIFY_SERVICE_TOKEN` en el gateway, y configurar SMTP/VAPID en notificaciones. Un plan de una sola aplicación WSGI no es suficiente para ejecutar todos los servicios. Consulta los [planes actuales](https://www.pythonanywhere.com/pricing/) y sus límites antes de elegir alojamiento.
 
 1. Crea una cuenta **Beginner gratuita** en [PythonAnywhere](https://www.pythonanywhere.com/registration/register/beginner/); no compartas tu contraseña.
 2. En **Web → Add a new web app**, elige **Manual configuration** y **Python 3.13**.
@@ -180,20 +205,28 @@ El WSGI configura las cookies seguras y crea SQLite en `~/Planify/app/instance/p
 
 ## Despliegue con Docker
 
-La SQLite de producción debe permanecer en un volumen persistente. La configuración `docker-compose.yml` incluida monta el volumen `planify-data` en `/data`.
+Cada microservicio tiene un volumen SQLite persistente independiente: `identity-data`, `planning-data` y `notification-data`. El contenedor web no contiene una base de negocio.
 
 1. Copia el archivo de variables y crea una clave secreta aleatoria:
 
    ```powershell
-   py -3 -c "import secrets; from pathlib import Path; Path('.env').write_text('PLANIFY_ENV=production\nPLANIFY_SECRET_KEY='+secrets.token_urlsafe(48)+'\nPLANIFY_DATABASE_URL=sqlite:////data/planify.db\nPLANIFY_RATE_LIMIT_STORAGE_URI=memory://\n', encoding='utf-8')"
+   py -3 -c "import secrets; from pathlib import Path; Path('.env').write_text('PLANIFY_ENV=production\nPLANIFY_SECRET_KEY='+secrets.token_urlsafe(48)+'\nPLANIFY_SERVICE_TOKEN='+secrets.token_urlsafe(48)+'\nPLANIFY_DELIVERY_EMAIL_ENABLED=false\nPLANIFY_RATE_LIMIT_STORAGE_URI=memory://\n', encoding='utf-8')"
    ```
 
-2. Construye e inicia el servicio:
+2. Si tienes una base heredada `instance/planify.db`, copia antes sus datos a los volúmenes del Compose:
+
+   ```powershell
+   docker compose --profile migration run --rm migrate
+   ```
+
+3. Construye e inicia los cuatro servicios:
 
    ```powershell
    docker compose up --build -d
    ```
 
-3. Abre [http://localhost:8000](http://localhost:8000). Para parar la aplicación, ejecuta `docker compose down`; el volumen persiste incluso después de parar el contenedor.
+4. Abre [http://localhost:8000](http://localhost:8000). Para detener los servicios, ejecuta `docker compose down`; los tres volúmenes de datos persisten.
+
+Docker Compose mantiene `identity`, `planning` y `notifications` en la red interna y no publica sus puertos. El token compartido autentica las llamadas; cada servicio persiste en un volumen independiente. Para enviar correo, configura SMTP y `PLANIFY_DELIVERY_EMAIL_ENABLED=true`; las credenciales SMTP y la clave privada VAPID solo se inyectan en `notifications`.
 
 No publiques `.env` ni reutilices la clave de ejemplo. Para alojar Planify en un proveedor externo, configura el equivalente a `PLANIFY_ENV=production`, define una clave secreta larga, y monta almacenamiento persistente en `/data`. Un disco temporal puede borrar SQLite cuando el proveedor reinicia o vuelve a desplegar la aplicación. Los límites de intentos predeterminados se guardan en memoria; para varias instancias, configura `PLANIFY_RATE_LIMIT_STORAGE_URI` con un almacén compartido compatible.

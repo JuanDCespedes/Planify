@@ -1,4 +1,4 @@
-"""Punto de entrada para servir Planify con Waitress."""
+"""Punto de entrada WSGI que publica Planify con Waitress."""
 
 import os
 

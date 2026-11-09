@@ -1,4 +1,4 @@
-"""Adaptadores para enviar notificaciones por SMTP y Web Push."""
+"""Adaptadores de entrega de correo SMTP y notificaciones Web Push."""
 
 import base64
 import json
@@ -8,6 +8,7 @@ import ssl
 from email.message import EmailMessage
 
 from pywebpush import WebPushException, webpush
+import requests
 from requests.exceptions import RequestException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -15,22 +16,47 @@ from sqlalchemy.orm import Session
 from planify.domain.models import Notification, PushSubscription, User
 
 
+def _delivery_service_enabled(config):
+    """Indica si hay URL y token para llamar al servicio de entrega interno."""
+    return bool(config.get("DELIVERY_SERVICE_URL") and config.get("DELIVERY_SERVICE_TOKEN"))
+
+
+def _post_to_delivery_service(path, payload, config):
+    """Envía un DTO JSON autenticado al microservicio y valida su respuesta."""
+    response = requests.post(
+        f"{config['DELIVERY_SERVICE_URL']}/api/v1/{path}",
+        json=payload,
+        headers={"Authorization": f"Bearer {config['DELIVERY_SERVICE_TOKEN']}"},
+        timeout=15,
+    )
+    response.raise_for_status()
+    return response
+
+
 def push_is_configured(config):
-    """Indica si la configuración incluye el par VAPID y el correo de contacto."""
-    return bool(
+    """Indica si están disponibles todas las credenciales VAPID requeridas."""
+    local_configuration = bool(
         config.get("VAPID_PUBLIC_KEY")
         and config.get("VAPID_PRIVATE_KEY")
         and config.get("VAPID_CLAIMS_EMAIL")
     )
+    service_configuration = bool(
+        _delivery_service_enabled(config) and config.get("VAPID_PUBLIC_KEY")
+    )
+    return local_configuration or service_configuration
 
 
 def email_is_configured(config):
-    """Indica si existen al menos el host SMTP y una dirección remitente."""
-    return bool(config.get("SMTP_HOST") and config.get("SMTP_FROM"))
+    """Indica si el host SMTP y el remitente están configurados."""
+    local_configuration = bool(config.get("SMTP_HOST") and config.get("SMTP_FROM"))
+    service_configuration = bool(
+        _delivery_service_enabled(config) and config.get("DELIVERY_EMAIL_ENABLED")
+    )
+    return local_configuration or service_configuration
 
 
 def _send_email_message(message, config):
-    """Entrega un mensaje mediante SMTP con la seguridad configurada."""
+    """Envía un mensaje SMTP con SSL directo o STARTTLS según configuración."""
     context = ssl.create_default_context()
     host = config["SMTP_HOST"]
     port = config.get("SMTP_PORT", 587)
@@ -51,7 +77,21 @@ def _send_email_message(message, config):
 
 
 def send_notification_email(notification: Notification, user: User, config):
-    """Envía por SMTP un aviso de evento o rutina; indica si estaba configurado."""
+    """Envía por correo un recordatorio guardado; retorna si SMTP está activo."""
+    if _delivery_service_enabled(config):
+        _post_to_delivery_service(
+            "email",
+            {
+                "to": user.email,
+                "subject": f"Recordatorio de Planify: {notification.title}",
+                "body": (
+                    f"{notification.title}\n\n{notification.message}\n\n"
+                    "Abre Planify para ver los detalles de tu agenda."
+                ),
+            },
+            config,
+        )
+        return True
     if not email_is_configured(config):
         return False
 
@@ -68,13 +108,41 @@ def send_notification_email(notification: Notification, user: User, config):
 
 
 def send_push_notification(session: Session, notification: Notification, user: User, config, logger):
-    """Envía el aviso a las suscripciones propias y elimina endpoints expirados."""
+    """Entrega el aviso a suscripciones propias y elimina endpoints expirados."""
     if not user.desktop_push_notifications or not push_is_configured(config):
         return
 
     subscriptions = session.scalars(
         select(PushSubscription).where(PushSubscription.user_id == user.id)
     ).all()
+    if _delivery_service_enabled(config):
+        try:
+            result = _post_to_delivery_service(
+                "push",
+                {
+                    "title": notification.title,
+                    "body": notification.message,
+                    "url": "/notifications",
+                    "tag": notification.dedupe_key or f"notification-{notification.id}",
+                    "subscriptions": [
+                        {
+                            "endpoint": item.endpoint,
+                            "keys": {"p256dh": item.p256dh, "auth": item.auth},
+                        }
+                        for item in subscriptions
+                    ],
+                },
+                config,
+            ).json()
+            expired_endpoints = set(result.get("expired_endpoints", []))
+            for subscription in subscriptions:
+                if subscription.endpoint in expired_endpoints:
+                    session.delete(subscription)
+        except (RequestException, ValueError) as error:
+            logger.error("Notification service push request failed for user %s: %s", user.id, error)
+        session.commit()
+        return
+
     payload = json.dumps(
         {
             "title": notification.title,
@@ -106,7 +174,7 @@ def send_push_notification(session: Session, notification: Notification, user: U
 
 
 def send_weekly_digest(user: User, events, config, logger):
-    """Envía el resumen semanal de eventos y devuelve si SMTP estaba disponible."""
+    """Envía el resumen semanal de eventos próximos si SMTP está disponible."""
     if not email_is_configured(config):
         logger.info("Weekly email is enabled for user %s, but SMTP is not configured.", user.id)
         return False
@@ -126,12 +194,24 @@ def send_weekly_digest(user: User, events, config, logger):
         body = "\n".join(lines)
     message.set_content(body)
 
+    if _delivery_service_enabled(config):
+        _post_to_delivery_service(
+            "email",
+            {
+                "to": user.email,
+                "subject": "Tu semana en Planify",
+                "body": body,
+            },
+            config,
+        )
+        return True
+
     _send_email_message(message, config)
     return True
 
 
 def generate_vapid_keys():
-    """Genera y devuelve las claves VAPID privada y pública en Base64 URL-safe."""
+    """Genera y devuelve las claves pública y privada VAPID en Base64 URL-safe."""
     from py_vapid import Vapid
     from cryptography.hazmat.primitives import serialization
 

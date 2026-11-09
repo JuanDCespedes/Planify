@@ -1,1 +1,1 @@
-"""Casos de uso y servicios de aplicación de Planify."""
+"""Casos de uso y servicios que coordinan las operaciones de Planify."""

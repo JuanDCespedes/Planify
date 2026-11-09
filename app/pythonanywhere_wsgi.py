@@ -1,4 +1,4 @@
-"""Configura y expone la aplicación Flask para el servidor WSGI de PythonAnywhere."""
+"""Configura la aplicación WSGI para el despliegue en PythonAnywhere."""
 
 import os
 import sys

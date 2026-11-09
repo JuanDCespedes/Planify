@@ -1,4 +1,4 @@
-"""Opciones admitidas y validaciones reutilizables del dominio."""
+"""Opciones admitidas y validaciones puras del dominio de Planify."""
 
 from datetime import date, time
 
@@ -50,7 +50,7 @@ def validate_category(name, color):
 
 
 def validate_event(title, event_date, start_time, category, reminder):
-    """Devuelve errores si los datos básicos de un evento no son válidos."""
+    """Valida los campos de evento y devuelve los errores encontrados."""
     errors = []
     if not title or not title.strip():
         errors.append("Escribe un título para el evento.")
