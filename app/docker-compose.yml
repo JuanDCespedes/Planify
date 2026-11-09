@@ -3,11 +3,142 @@ services:
     build: .
     env_file:
       - .env
+    environment:
+      PLANIFY_MICROSERVICES_ENABLED: "true"
+      PLANIFY_SERVICE_TOKEN: "${PLANIFY_SERVICE_TOKEN:-${PLANIFY_DELIVERY_SERVICE_TOKEN:?Configura un token aleatorio en .env}}"
+      IDENTITY_SERVICE_URL: http://identity:8101
+      PLANNING_SERVICE_URL: http://planning:8102
+      NOTIFICATION_SERVICE_URL: http://notifications:8100
+      PLANIFY_DELIVERY_EMAIL_ENABLED: ${PLANIFY_DELIVERY_EMAIL_ENABLED:-false}
+      PLANIFY_SMTP_HOST: ""
+      PLANIFY_SMTP_USERNAME: ""
+      PLANIFY_SMTP_PASSWORD: ""
+      PLANIFY_SMTP_FROM: ""
+      PLANIFY_SMTP_USE_SSL: ""
+      PLANIFY_SMTP_STARTTLS: ""
+      PLANIFY_VAPID_PRIVATE_KEY: ""
+      PLANIFY_VAPID_CLAIMS_EMAIL: ""
     ports:
       - "8000:8000"
-    volumes:
-      - planify-data:/data
+    depends_on:
+      identity:
+        condition: service_healthy
+      planning:
+        condition: service_healthy
+      notifications:
+        condition: service_healthy
     restart: unless-stopped
 
+  identity:
+    build: .
+    command: ["python", "-m", "identity_service.serve"]
+    environment:
+      PLANIFY_SERVICE_TOKEN: "${PLANIFY_SERVICE_TOKEN:-${PLANIFY_DELIVERY_SERVICE_TOKEN:?Configura un token aleatorio en .env}}"
+      IDENTITY_DATABASE_URL: sqlite:////data/identity.db
+      IDENTITY_PORT: "8101"
+    volumes:
+      - identity-data:/data
+    expose:
+      - "8101"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8101/health', timeout=2)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  planning:
+    build: .
+    command: ["python", "-m", "planning_service.serve"]
+    environment:
+      PLANIFY_SERVICE_TOKEN: "${PLANIFY_SERVICE_TOKEN:-${PLANIFY_DELIVERY_SERVICE_TOKEN:?Configura un token aleatorio en .env}}"
+      PLANNING_DATABASE_URL: sqlite:////data/planning.db
+      PLANNING_PORT: "8102"
+    volumes:
+      - planning-data:/data
+    expose:
+      - "8102"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8102/health', timeout=2)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  notifications:
+    build: .
+    command: ["python", "-m", "notification_service.serve"]
+    environment:
+      PLANIFY_SERVICE_TOKEN: "${PLANIFY_SERVICE_TOKEN:-${PLANIFY_DELIVERY_SERVICE_TOKEN:?Configura un token aleatorio en .env}}"
+      NOTIFICATION_DATABASE_URL: sqlite:////data/notifications.db
+      IDENTITY_SERVICE_URL: http://identity:8101
+      PLANNING_SERVICE_URL: http://planning:8102
+      PLANIFY_TIMEZONE: ${PLANIFY_TIMEZONE:-America/Bogota}
+      PLANIFY_ENABLE_NOTIFICATION_SCHEDULER: "true"
+      DELIVERY_PORT: "8100"
+      PLANIFY_SMTP_HOST: ${PLANIFY_SMTP_HOST:-}
+      PLANIFY_SMTP_PORT: ${PLANIFY_SMTP_PORT:-587}
+      PLANIFY_SMTP_USERNAME: ${PLANIFY_SMTP_USERNAME:-}
+      PLANIFY_SMTP_PASSWORD: ${PLANIFY_SMTP_PASSWORD:-}
+      PLANIFY_SMTP_FROM: ${PLANIFY_SMTP_FROM:-}
+      PLANIFY_SMTP_USE_SSL: ${PLANIFY_SMTP_USE_SSL:-false}
+      PLANIFY_SMTP_STARTTLS: ${PLANIFY_SMTP_STARTTLS:-true}
+      PLANIFY_VAPID_PRIVATE_KEY: ${PLANIFY_VAPID_PRIVATE_KEY:-}
+      PLANIFY_VAPID_PUBLIC_KEY: ${PLANIFY_VAPID_PUBLIC_KEY:-}
+      PLANIFY_VAPID_CLAIMS_EMAIL: ${PLANIFY_VAPID_CLAIMS_EMAIL:-}
+    volumes:
+      - notification-data:/data
+    expose:
+      - "8100"
+    depends_on:
+      identity:
+        condition: service_healthy
+      planning:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=2)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  migrate:
+    profiles: ["migration"]
+    build: .
+    command:
+      - python
+      - migrate_to_microservices.py
+      - --source
+      - /legacy/planify.db
+      - --identity-db
+      - sqlite:////identity/identity.db
+      - --planning-db
+      - sqlite:////planning/planning.db
+      - --notification-db
+      - sqlite:////notifications/notifications.db
+    volumes:
+      - ./instance:/legacy:ro
+      - identity-data:/identity
+      - planning-data:/planning
+      - notification-data:/notifications
+    restart: "no"
+
 volumes:
-  planify-data:
+  identity-data:
+  planning-data:
+  notification-data:

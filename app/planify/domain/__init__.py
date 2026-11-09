@@ -1,1 +1,1 @@
-"""Entidades y reglas del dominio de planificación."""
+"""Entidades y reglas que definen el dominio de planificación personal."""

@@ -1,4 +1,4 @@
-"""Cálculo periódico, persistencia y despacho de recordatorios de usuarios."""
+"""Programación, deduplicación y entrega de avisos de eventos y rutinas."""
 
 from datetime import datetime, time, timedelta, timezone as utc_timezone
 import logging
@@ -6,6 +6,7 @@ import smtplib
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
+from requests.exceptions import RequestException
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
@@ -35,7 +36,7 @@ MAX_EMAIL_ATTEMPTS = 5
 
 
 def _quiet_end_after(user, scheduled_at):
-    """Calcula el fin del intervalo silencioso que contiene la hora programada."""
+    """Devuelve el fin del periodo silencioso que contiene una hora programada."""
     if not user.quiet_hours_enabled:
         return None
 
@@ -55,7 +56,7 @@ def _quiet_end_after(user, scheduled_at):
 
 
 def _delivery_time(user, scheduled_at, now):
-    """Aplaza el envío hasta que terminen las horas silenciosas del usuario."""
+    """Calcula cuándo entregar un aviso considerando el horario silencioso."""
     quiet_end = _quiet_end_after(user, scheduled_at)
     if quiet_end is None:
         return scheduled_at
@@ -63,13 +64,13 @@ def _delivery_time(user, scheduled_at, now):
 
 
 def _notification_due(user, scheduled_at, now):
-    """Comprueba si ya corresponde entregar el aviso dentro de la tolerancia."""
+    """Comprueba vencimiento y tolerancia para no perder ejecuciones cercanas."""
     delivery_at = _delivery_time(user, scheduled_at, now)
     return delivery_at <= now and now - delivery_at <= DELIVERY_GRACE
 
 
 def _persist_notification(session, user, key, title, message, notification_type, config, logger):
-    """Guarda un aviso no duplicado y realiza el envío push cuando está habilitado."""
+    """Guarda una notificación una sola vez y solicita su entrega push."""
     if not user.in_app_notifications and not (
         user.desktop_push_notifications and push_is_configured(config)
     ) and not (user.email_notifications and email_is_configured(config)):
@@ -98,7 +99,7 @@ def _persist_notification(session, user, key, title, message, notification_type,
 
 
 def _process_event_reminders(session, now, config, logger):
-    """Busca recordatorios de eventos vencidos y crea los avisos correspondientes."""
+    """Busca recordatorios de eventos vencidos y los persiste sin duplicarlos."""
     start_date = (now - LOOKBACK).date()
     end_date = (now + timedelta(days=2)).date()
     events = session.scalars(
@@ -149,7 +150,7 @@ REMINDER_LABELS = {
 
 
 def _process_routine_reminders(session, now, config, logger):
-    """Busca inicios de bloques de rutina y sus avisos anticipados configurados."""
+    """Genera avisos de inicio o de cinco minutos para bloques semanales."""
     day_dates = (now.date() - timedelta(days=1), now.date())
     blocks = session.scalars(
         select(RoutineBlock).where(RoutineBlock.user_id.is_not(None))
@@ -218,12 +219,12 @@ def _process_weekly_digests(session, now, config, logger):
             if send_weekly_digest(user, events, config, logger):
                 user.last_weekly_digest_key = digest_key
                 session.commit()
-        except (OSError, smtplib.SMTPException, ValueError) as error:
+        except (OSError, RequestException, smtplib.SMTPException, ValueError) as error:
             logger.error("Weekly email failed for user %s: %s", user.id, error)
 
 
 def _process_pending_notification_emails(session, now, config, logger):
-    """Reintenta los correos de avisos pendientes dentro de sus límites."""
+    """Reintenta correos pendientes respetando espera y máximo de intentos."""
     if not email_is_configured(config):
         return
 
@@ -258,7 +259,7 @@ def _process_pending_notification_emails(session, now, config, logger):
             if send_notification_email(notification, user, config):
                 notification.email_sent_at = utc_now
                 session.commit()
-        except (OSError, smtplib.SMTPException, ValueError) as error:
+        except (OSError, RequestException, smtplib.SMTPException, ValueError) as error:
             session.rollback()
             logger.error(
                 "Notification email failed for user %s, notification %s (attempt %s/%s): %s",
@@ -271,7 +272,7 @@ def _process_pending_notification_emails(session, now, config, logger):
 
 
 def process_due_notifications(session, now=None, config=None, logger=None):
-    """Procesa avisos vencidos usando la hora, configuración y logger indicados."""
+    """Procesa recordatorios vencidos con dependencias inyectables para pruebas."""
     config = config or {}
     timezone = ZoneInfo(config.get("TIMEZONE", "America/Bogota"))
     now = now or datetime.now(timezone).replace(tzinfo=None, second=0, microsecond=0)
@@ -283,7 +284,7 @@ def process_due_notifications(session, now=None, config=None, logger=None):
 
 
 def start_notification_scheduler(app):
-    """Inicia el proceso APScheduler que ejecuta la entrega cada minuto."""
+    """Inicia un trabajo en segundo plano que revisa avisos cada minuto."""
     scheduler = BackgroundScheduler(timezone=app.config.get("TIMEZONE", "America/Bogota"))
     scheduler.add_job(
         _scheduled_job,
@@ -301,7 +302,7 @@ def start_notification_scheduler(app):
 
 
 def _scheduled_job(app):
-    """Abre contexto y sesión Flask para una ejecución del planificador."""
+    """Abre el contexto y sesión necesarios para una ejecución del scheduler."""
     with app.app_context():
         session_factory = app.extensions["planify_session_factory"]
         session = session_factory()

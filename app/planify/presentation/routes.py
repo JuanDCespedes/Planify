@@ -1,4 +1,4 @@
-"""Rutas HTTP, autenticación y coordinación de vistas de Planify."""
+"""Rutas HTTP, control de sesión y coordinación entre páginas y servicios."""
 
 import base64
 import binascii
@@ -62,7 +62,7 @@ WEEKDAYS = ("Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom")
 
 @main.app_context_processor
 def template_helpers():
-    """Expone utilidades de fecha y etiquetas disponibles para las plantillas."""
+    """Expone formato y conversión horaria a las plantillas Jinja."""
     def local_datetime(value):
         """Interpreta fechas sin zona como UTC y las convierte a la zona local."""
         if value.tzinfo is None:
@@ -72,7 +72,7 @@ def template_helpers():
         )
 
     def format_local_datetime(value, format_string="%d/%m · %H:%M"):
-        """Formatea una fecha convertida a la zona horaria de la aplicación."""
+        """Formatea una fecha después de convertirla a la zona configurada."""
         return local_datetime(value).strftime(format_string)
 
     return {
@@ -105,7 +105,7 @@ def require_signed_in_user():
 
 
 def safe_redirect_target(target):
-    """Acepta solo destinos de redirección relativos al sitio actual."""
+    """Acepta únicamente destinos locales para evitar redirecciones externas."""
     if not target:
         return None
     parsed = urlsplit(target)
@@ -115,7 +115,7 @@ def safe_redirect_target(target):
 
 
 def valid_push_endpoint(endpoint):
-    """Valida esquema, puerto y dominio de un endpoint de notificación push."""
+    """Valida que un endpoint push use HTTPS y pertenezca a un proveedor admitido."""
     try:
         parsed = urlsplit(endpoint)
         port = parsed.port
@@ -143,7 +143,7 @@ def valid_push_endpoint(endpoint):
 
 
 def valid_push_keys(p256dh, auth):
-    """Comprueba que las claves Web Push codificadas tengan formato y longitud."""
+    """Comprueba formato y longitud de las claves entregadas por el navegador."""
     try:
         decoded_p256dh = base64.b64decode(
             p256dh + "=" * ((4 - len(p256dh) % 4) % 4),
@@ -163,7 +163,7 @@ def valid_push_keys(p256dh, auth):
 @main.route("/login", methods=["GET", "POST"])
 @limiter.limit("10 per minute")
 def login():
-    """Muestra el acceso o autentica una cuenta y redirige al destino seguro."""
+    """Muestra el formulario de acceso o inicia una sesión válida."""
     if current_user.is_authenticated:
         return redirect(url_for("main.dashboard"))
 
@@ -193,7 +193,7 @@ def login():
 @main.route("/auth/google")
 @limiter.limit("10 per minute")
 def google_login():
-    """Inicia OAuth con Google o muestra un aviso si falta su configuración."""
+    """Inicia OAuth de Google o informa que faltan credenciales de servidor."""
     if not current_app.config.get("GOOGLE_CLIENT_ID") or not current_app.config.get("GOOGLE_CLIENT_SECRET"):
         flash(
             "Google aún no está configurado. Sigue la guía de configuración del README para activarlo.",
@@ -216,7 +216,7 @@ def google_login():
 @main.route("/auth/google/callback")
 @limiter.limit("10 per minute")
 def google_callback():
-    """Valida la respuesta OpenID y vincula o autentica la cuenta verificada."""
+    """Valida la respuesta OpenID y autentica o vincula la cuenta confirmada."""
     oauth = current_app.extensions["planify_oauth"]
     if not current_app.config.get("GOOGLE_CLIENT_ID") or not current_app.config.get("GOOGLE_CLIENT_SECRET"):
         flash("Google aún no está configurado.", "error")
@@ -281,7 +281,7 @@ def google_callback():
 @main.route("/register", methods=["GET", "POST"])
 @limiter.limit("5 per hour")
 def register():
-    """Registra una cuenta nueva, inicia sesión y presenta sus datos iniciales."""
+    """Muestra el registro o crea una cuenta con datos iniciales privados."""
     if current_user.is_authenticated:
         return redirect(url_for("main.dashboard"))
 
@@ -311,7 +311,7 @@ def register():
 
 @main.route("/forgot-password")
 def forgot_password():
-    """Muestra la pantalla informativa de recuperación aún no habilitada."""
+    """Muestra la pantalla informativa de recuperación, aún sin envío de correo."""
     if current_user.is_authenticated:
         return redirect(url_for("main.dashboard"))
     return render_template("auth/forgot_password.html")
@@ -319,7 +319,7 @@ def forgot_password():
 
 @main.route("/logout", methods=["POST"])
 def logout():
-    """Cierra la sesión actual y redirige al formulario de acceso."""
+    """Cierra la sesión autenticada y vuelve al formulario de acceso."""
     logout_user()
     flash("Has cerrado sesión correctamente.", "success")
     return redirect(url_for("main.login"))
@@ -327,7 +327,7 @@ def logout():
 
 @main.route("/")
 def dashboard():
-    """Presenta los eventos de hoy, los próximos y el total de avisos sin leer."""
+    """Muestra eventos de hoy y los próximos de la cuenta autenticada."""
     today = date.today()
     service = EventService(get_session(), current_user.id)
     todays_events = service.list_between(today, today)
@@ -351,7 +351,7 @@ def dashboard():
 
 @main.route("/calendar")
 def calendar_view():
-    """Valida el mes solicitado y renderiza el calendario con eventos propios."""
+    """Construye la cuadrícula mensual y agrupa eventos propios por día."""
     today = date.today()
     try:
         year, month = (int(part) for part in request.args.get("month", f"{today.year}-{today.month:02}").split("-"))
@@ -388,7 +388,7 @@ def calendar_view():
 @main.route("/events/new", methods=["GET", "POST"])
 @main.route("/events/<int:event_id>/edit", methods=["GET", "POST"])
 def event_form(event_id=None):
-    """Muestra el formulario y crea o actualiza un evento de la cuenta actual."""
+    """Crea o edita un evento propio después de validar el formulario."""
     session = get_session()
     service = EventService(session, current_user.id)
     event = service.get(event_id) if event_id is not None else Event()
@@ -460,7 +460,7 @@ def event_form(event_id=None):
 
 @main.route("/events/<int:event_id>/delete", methods=["POST"])
 def delete_event(event_id):
-    """Elimina un evento propio por POST y vuelve al panel."""
+    """Elimina un evento únicamente si pertenece a la cuenta actual."""
     service = EventService(get_session(), current_user.id)
     event = service.get(event_id)
     if event is None:
@@ -473,7 +473,7 @@ def delete_event(event_id):
 
 @main.route("/routine", methods=["GET", "POST"])
 def routine():
-    """Muestra los bloques semanales del día y permite añadir uno nuevo."""
+    """Muestra los bloques del día y permite añadir uno a la rutina semanal."""
     today = date.today()
     service = RoutineService(get_session(), current_user.id)
     errors = []
@@ -508,7 +508,7 @@ def routine():
 
 @main.route("/notifications")
 def notifications():
-    """Renderiza el listado de notificaciones de la cuenta actual."""
+    """Muestra el centro de notificaciones y el total pendiente de lectura."""
     items = NotificationService(get_session(), current_user.id).list_all()
     return render_template(
         "notifications.html",
@@ -519,7 +519,7 @@ def notifications():
 
 @main.route("/api/notifications")
 def poll_notifications():
-    """Devuelve notificaciones recientes propias para la consulta del navegador."""
+    """Devuelve avisos recientes propios para la consulta periódica del navegador."""
     db_session = get_session()
     user = UserRepository(db_session).by_id(current_user.id)
     latest_id = db_session.scalar(
@@ -570,7 +570,7 @@ def poll_notifications():
 
 @main.route("/api/notifications/push-key")
 def push_public_key():
-    """Devuelve la clave pública VAPID o informa que push no está configurado."""
+    """Entrega la clave pública VAPID necesaria para suscribir este navegador."""
     if not push_is_configured(current_app.config):
         return jsonify({"configured": False}), 503
     return jsonify(
@@ -626,7 +626,7 @@ def save_push_subscription():
 
 @main.route("/api/notifications/push-subscription", methods=["DELETE"])
 def delete_push_subscription():
-    """Elimina la suscripción push indicada solo si pertenece al usuario."""
+    """Elimina una suscripción push propia asociada al endpoint enviado."""
     payload = request.get_json(silent=True)
     endpoint = payload.get("endpoint") if isinstance(payload, dict) else None
     if not isinstance(endpoint, str):
@@ -646,7 +646,7 @@ def delete_push_subscription():
 
 @main.route("/service-worker.js")
 def service_worker():
-    """Sirve el service worker con alcance raíz y sin caché del navegador."""
+    """Sirve el service worker desde la raíz para habilitar Web Push."""
     response = make_response(
         send_from_directory(current_app.static_folder, "service-worker.js")
     )
@@ -657,7 +657,7 @@ def service_worker():
 
 @main.route("/notifications/<int:notification_id>/read", methods=["POST"])
 def mark_notification_read(notification_id):
-    """Marca como leída una notificación propia si existe."""
+    """Marca como leída una notificación propia."""
     service = NotificationService(get_session(), current_user.id)
     notification = service.get(notification_id)
     if notification is None:
@@ -677,7 +677,7 @@ def mark_all_notifications_read():
 
 @main.route("/notifications/<int:notification_id>/dismiss", methods=["POST"])
 def dismiss_notification(notification_id):
-    """Descarta una notificación propia y vuelve al listado."""
+    """Descarta una notificación propia del centro de notificaciones."""
     service = NotificationService(get_session(), current_user.id)
     notification = service.get(notification_id)
     if notification is None:
@@ -690,7 +690,7 @@ def dismiss_notification(notification_id):
 
 @main.route("/settings")
 def settings():
-    """Presenta categorías, preferencias y estado de servicios opcionales."""
+    """Muestra perfil, categorías y preferencias de notificación de la cuenta."""
     return render_template(
         "settings.html",
         categories=CategoryService(get_session(), current_user.id).list_all(),
@@ -715,7 +715,7 @@ def settings():
 
 @main.route("/settings/profile", methods=["POST"])
 def update_profile():
-    """Valida y guarda el nombre y correo de la cuenta autenticada."""
+    """Actualiza el nombre o correo tras comprobar la contraseña cuando aplica."""
     db_session = get_session()
     user = UserRepository(db_session).by_id(current_user.id)
     display_name = request.form.get("display_name", "").strip()
@@ -752,7 +752,7 @@ def update_profile():
 
 @main.route("/settings/password", methods=["POST"])
 def update_password():
-    """Cambia la contraseña tras validar la sesión, la contraseña actual y la nueva."""
+    """Cambia o crea la contraseña local después de validar la cuenta."""
     db_session = get_session()
     user = UserRepository(db_session).by_id(current_user.id)
     current_password = request.form.get("current_password", "")
@@ -785,7 +785,7 @@ def update_password():
 
 @main.route("/settings/preferences", methods=["POST"])
 def update_preferences():
-    """Valida y persiste recordatorios, canales de aviso y horas silenciosas."""
+    """Valida y guarda preferencias de recordatorios y horas silenciosas."""
     db_session = get_session()
     user = UserRepository(db_session).by_id(current_user.id)
     reminder = request.form.get("default_reminder", "")
@@ -845,7 +845,7 @@ def update_preferences():
 
 @main.route("/settings/default-reminder", methods=["POST"])
 def update_default_reminder():
-    """Guarda el recordatorio predeterminado si está habilitado para la cuenta."""
+    """Guarda una anticipación predeterminada que esté habilitada por el usuario."""
     reminder = request.form.get("default_reminder", "")
     if (
         reminder not in REMINDERS
@@ -862,7 +862,7 @@ def update_default_reminder():
 
 @main.route("/settings/categories", methods=["POST"])
 def create_category():
-    """Crea una categoría personal y muestra el resultado al usuario."""
+    """Crea una categoría personal con el nombre y color enviados."""
     errors = CategoryService(get_session(), current_user.id).create(
         request.form.get("name", ""),
         request.form.get("color", ""),
@@ -877,7 +877,7 @@ def create_category():
 
 @main.route("/settings/categories/<int:category_id>", methods=["POST"])
 def update_category(category_id):
-    """Actualiza una categoría propia y muestra los errores de validación."""
+    """Actualiza el nombre y color de una categoría propia."""
     errors = CategoryService(get_session(), current_user.id).update(
         category_id,
         request.form.get("name", ""),
@@ -893,7 +893,7 @@ def update_category(category_id):
 
 @main.route("/settings/categories/<int:category_id>/delete", methods=["POST"])
 def delete_category(category_id):
-    """Elimina una categoría propia solo si las reglas de dominio lo permiten."""
+    """Elimina una categoría propia si las reglas del dominio lo permiten."""
     errors = CategoryService(get_session(), current_user.id).delete(category_id)
     if errors:
         for error in errors:
@@ -905,7 +905,7 @@ def delete_category(category_id):
 
 @main.route("/settings/account/delete", methods=["POST"])
 def delete_account():
-    """Exige confirmación reciente y elimina la cuenta junto con sus datos propios."""
+    """Elimina la cuenta y sus datos tras validar confirmaciones de seguridad."""
     db_session = get_session()
     user = UserRepository(db_session).by_id(current_user.id)
     if normalize_email(request.form.get("confirm_email", "")) != user.email:

@@ -1,8 +1,8 @@
-"""Fábrica de la aplicación Flask y configuración de extensiones de Planify."""
+"""Fábrica de la aplicación Flask y configuración de extensiones compartidas."""
 
 import os
 
-from flask import Flask
+from flask import Flask, current_app
 from authlib.integrations.flask_client import OAuth
 from flask_login import LoginManager
 from flask_wtf.csrf import CSRFProtect
@@ -14,6 +14,7 @@ from planify.extensions import limiter
 from planify.infrastructure.database import init_database
 from planify.infrastructure.security import register_security_handlers
 from planify.presentation.routes import main
+from planify.presentation.gateway_routes import main as gateway_main
 
 
 login_manager = LoginManager()
@@ -21,13 +22,19 @@ csrf = CSRFProtect()
 
 
 def create_app(config_object=Config):
-    """Crea y configura una instancia de Planify.
-
-    Registra extensiones y rutas, inicializa la base de datos y habilita el
-    planificador de notificaciones cuando corresponde a la configuración.
-    """
+    """Construye Planify, registra sus extensiones y prepara la persistencia."""
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_object(config_object)
+
+    if app.config.get("MICROSERVICES_ENABLED"):
+        required_services = (
+            app.config.get("SERVICE_TOKEN"),
+            app.config.get("IDENTITY_SERVICE_URL"),
+            app.config.get("PLANNING_SERVICE_URL"),
+            app.config.get("NOTIFICATION_SERVICE_URL"),
+        )
+        if not all(required_services):
+            raise RuntimeError("Configura el token y las URL de los tres microservicios.")
 
     if app.config.get("ENVIRONMENT") == "production":
         secret_key = app.config.get("SECRET_KEY")
@@ -52,11 +59,13 @@ def create_app(config_object=Config):
             client_kwargs={"scope": "openid email profile"},
         )
     app.extensions["planify_oauth"] = oauth
-    app.register_blueprint(main)
-    init_database(app)
+    app.register_blueprint(gateway_main if app.config.get("MICROSERVICES_ENABLED") else main)
+    if not app.config.get("MICROSERVICES_ENABLED"):
+        init_database(app)
     is_debug_reloader_parent = app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true"
     if (
-        app.config.get("ENABLE_NOTIFICATION_SCHEDULER")
+        not app.config.get("MICROSERVICES_ENABLED")
+        and app.config.get("ENABLE_NOTIFICATION_SCHEDULER")
         and not app.config.get("TESTING")
         and not is_debug_reloader_parent
     ):
@@ -69,11 +78,20 @@ def create_app(config_object=Config):
 
 @login_manager.user_loader
 def load_user(user_id):
-    """Recupera de la base de datos al usuario asociado a una sesión Flask-Login."""
+    """Recupera de SQLite la cuenta asociada al identificador de sesión."""
     try:
         parsed_user_id = int(user_id)
     except (TypeError, ValueError):
         return None
+
+    if current_app.config.get("MICROSERVICES_ENABLED"):
+        from planify.infrastructure.microservices import ServiceApiError, ServiceClients
+
+        try:
+            return ServiceClients().get_user(parsed_user_id)
+        except ServiceApiError as error:
+            current_app.logger.error("Identity service unavailable while loading user: %s", error)
+            return None
 
     from planify.infrastructure.database import get_session
 

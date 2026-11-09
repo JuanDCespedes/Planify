@@ -1,1 +1,1 @@
-"""Rutas HTTP y presentación web de Planify."""
+"""Capa HTTP y componentes de presentación de Planify."""

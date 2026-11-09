@@ -1,4 +1,4 @@
-"""Consultas SQLAlchemy agrupadas por entidad y propiedad de cuenta."""
+"""Consultas de persistencia que encapsulan el acceso a entidades Planify."""
 
 from datetime import date, datetime, time
 
@@ -9,22 +9,22 @@ from planify.domain.models import Category, Event, Notification, RoutineBlock, U
 
 
 class UserRepository:
-    """Operaciones de persistencia para cuentas de usuario."""
+    """Busca y persiste cuentas de usuario."""
 
     def __init__(self, session: Session):
-        """Asocia el repositorio a la sesión de base de datos actual."""
+        """Asocia el repositorio a una sesión SQLAlchemy."""
         self.session = session
 
     def by_email(self, email: str):
-        """Busca la cuenta cuyo correo coincide exactamente con el argumento."""
+        """Busca una cuenta por su correo normalizado."""
         return self.session.scalar(select(User).where(User.email == email))
 
     def by_id(self, user_id: int):
-        """Obtiene una cuenta por su clave primaria."""
+        """Busca una cuenta por identificador primario."""
         return self.session.get(User, user_id)
 
     def by_google_subject(self, google_subject: str):
-        """Busca la cuenta vinculada al identificador estable de Google."""
+        """Busca una cuenta por el identificador estable de Google."""
         return self.session.scalar(select(User).where(User.google_subject == google_subject))
 
     def add(self, user: User):
@@ -32,31 +32,31 @@ class UserRepository:
         self.session.add(user)
 
     def delete(self, user: User):
-        """Marca una cuenta para eliminación al confirmar la transacción."""
+        """Marca una cuenta para eliminar dentro de la sesión actual."""
         self.session.delete(user)
 
 
 class CategoryRepository:
-    """Consultas de categorías filtradas por propietario."""
+    """Consulta categorías siempre dentro del ámbito de una cuenta."""
 
     def __init__(self, session: Session):
-        """Asocia el repositorio a la sesión de base de datos actual."""
+        """Asocia el repositorio a una sesión SQLAlchemy."""
         self.session = session
 
     def all(self, user_id: int):
-        """Lista las categorías de una cuenta en orden insensible a mayúsculas."""
+        """Lista categorías del usuario por nombre, sin distinguir mayúsculas."""
         return self.session.scalars(
             select(Category).where(Category.user_id == user_id).order_by(Category.name.collate("NOCASE"))
         ).all()
 
     def get(self, category_id: int, user_id: int):
-        """Obtiene una categoría solo si pertenece al propietario indicado."""
+        """Busca una categoría por id y propietario."""
         return self.session.scalar(
             select(Category).where(Category.id == category_id, Category.user_id == user_id)
         )
 
     def by_name(self, name: str, user_id: int, exclude_id: int | None = None):
-        """Busca el nombre normalizado entre las categorías de una cuenta."""
+        """Busca por nombre normalizado y permite excluir una categoría al editar."""
         normalized_name = name.strip().casefold()
         return next(
             (
@@ -68,7 +68,7 @@ class CategoryRepository:
         )
 
     def in_use(self, category_id: int, user_id: int):
-        """Indica si algún evento propio hace referencia a la categoría."""
+        """Indica si algún evento del usuario utiliza la categoría."""
         return self.session.scalar(
             select(Event.id).where(
                 Event.category_id == category_id,
@@ -81,25 +81,24 @@ class CategoryRepository:
         self.session.add(category)
 
     def delete(self, category: Category):
-        """Marca una categoría para eliminación al confirmar la transacción."""
+        """Marca una categoría para eliminar dentro de la sesión actual."""
         self.session.delete(category)
 
-
 class EventRepository:
-    """Consultas de eventos limitadas al propietario de cada agenda."""
+    """Consulta y persiste eventos con filtro obligatorio por propietario."""
 
     def __init__(self, session: Session):
-        """Asocia el repositorio a la sesión de base de datos actual."""
+        """Asocia el repositorio a una sesión SQLAlchemy."""
         self.session = session
 
     def get(self, event_id, user_id: int):
-        """Obtiene un evento solo si pertenece al usuario indicado."""
+        """Busca un evento únicamente si pertenece al usuario indicado."""
         return self.session.scalar(
             select(Event).where(Event.id == event_id, Event.user_id == user_id)
         )
 
     def between(self, start_date: date, end_date: date, user_id: int):
-        """Lista los eventos propios del intervalo inclusivo en orden cronológico."""
+        """Lista eventos propios en un intervalo inclusivo y ordenado."""
         return self.session.scalars(
             select(Event)
             .where(
@@ -115,19 +114,19 @@ class EventRepository:
         self.session.add(event)
 
     def delete(self, event):
-        """Marca un evento para eliminación al confirmar la transacción."""
+        """Marca un evento para eliminar dentro de la sesión actual."""
         self.session.delete(event)
 
 
 class RoutineRepository:
-    """Consultas y escrituras de bloques de rutina personales."""
+    """Consulta y persiste bloques semanales de rutina."""
 
     def __init__(self, session: Session):
-        """Asocia el repositorio a la sesión de base de datos actual."""
+        """Asocia el repositorio a una sesión SQLAlchemy."""
         self.session = session
 
     def for_day(self, day_of_week: int, user_id: int):
-        """Lista los bloques del día indicados que pertenecen al usuario."""
+        """Lista bloques propios de un día de semana en orden horario."""
         return self.session.scalars(
             select(RoutineBlock)
             .where(
@@ -143,10 +142,10 @@ class RoutineRepository:
 
 
 class NotificationRepository:
-    """Consultas de notificaciones filtradas por cuenta."""
+    """Consulta y persiste notificaciones filtradas por propietario."""
 
     def __init__(self, session: Session):
-        """Asocia el repositorio a la sesión de base de datos actual."""
+        """Asocia el repositorio a una sesión SQLAlchemy."""
         self.session = session
 
     def all(self, user_id: int):
@@ -158,7 +157,7 @@ class NotificationRepository:
         ).all()
 
     def get(self, notification_id, user_id: int):
-        """Obtiene un aviso solo si pertenece al usuario indicado."""
+        """Busca una notificación únicamente si pertenece al usuario indicado."""
         return self.session.scalar(
             select(Notification).where(
                 Notification.id == notification_id,
@@ -167,7 +166,7 @@ class NotificationRepository:
         )
 
     def mark_all_read(self, user_id: int):
-        """Actualiza en bloque el estado de lectura de los avisos propios."""
+        """Marca como leídos los avisos pendientes del usuario indicado."""
         self.session.execute(
             update(Notification)
             .where(Notification.user_id == user_id, Notification.is_read.is_(False))
@@ -179,5 +178,5 @@ class NotificationRepository:
         self.session.add(notification)
 
     def delete(self, notification):
-        """Marca una notificación para eliminación al confirmar la transacción."""
+        """Marca una notificación para eliminar dentro de la sesión actual."""
         self.session.delete(notification)

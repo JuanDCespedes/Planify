@@ -1,4 +1,4 @@
-"""Validación de credenciales, registro y autenticación local o Google."""
+"""Casos de uso de registro, autenticación local y acceso con Google."""
 
 import re
 import secrets
@@ -19,12 +19,12 @@ _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def normalize_email(email: str) -> str:
-    """Recorta espacios y normaliza el correo para comparaciones coherentes."""
+    """Elimina espacios y normaliza el correo para comparaciones consistentes."""
     return email.strip().casefold()
 
 
 def validate_email(email: str) -> list[str]:
-    """Valida la forma y longitud de un correo y devuelve errores legibles."""
+    """Devuelve errores si el correo normalizado no tiene formato válido."""
     normalized_email = normalize_email(email)
     if len(normalized_email) > 254 or not _EMAIL_PATTERN.fullmatch(normalized_email):
         return ["Escribe un correo electrónico válido."]
@@ -44,15 +44,15 @@ def validate_registration(email: str, password: str, confirmation: str) -> list[
 
 
 class AuthenticationService:
-    """Coordina el acceso y la creación de cuentas mediante repositorios."""
+    """Coordina la creación de cuentas y la comprobación de credenciales."""
 
     def __init__(self, session: Session):
-        """Prepara el servicio con la sesión SQLAlchemy de la operación."""
+        """Inicializa el servicio con la sesión y el repositorio de usuarios."""
         self.session = session
         self.users = UserRepository(session)
 
     def register(self, email: str, password: str, confirmation: str):
-        """Crea una cuenta válida y sus datos iniciales, o devuelve errores."""
+        """Registra una cuenta y sus datos iniciales o devuelve errores."""
         errors = validate_registration(email, password, confirmation)
         if errors:
             return None, errors
@@ -78,7 +78,7 @@ class AuthenticationService:
         return user, []
 
     def authenticate(self, email: str, password: str):
-        """Autentica credenciales locales sin revelar si el correo existe."""
+        """Comprueba las credenciales locales sin revelar si existe el correo."""
         normalized_email = normalize_email(email)
         user = self.users.by_email(normalized_email)
         encoded_password = password if len(password) <= MAX_PASSWORD_LENGTH else ""
@@ -89,11 +89,11 @@ class AuthenticationService:
         return None
 
     def get_user(self, user_id: int):
-        """Busca una cuenta por su identificador."""
+        """Busca una cuenta por su identificador interno."""
         return self.users.by_id(user_id)
 
     def authenticate_google(self, email: str, google_subject: str, display_name: str):
-        """Busca, vincula o crea una cuenta con una identidad Google verificada."""
+        """Busca, vincula o crea la cuenta asociada a un perfil Google validado."""
         normalized_email = normalize_email(email)
         user = self.users.by_google_subject(google_subject)
         if user:

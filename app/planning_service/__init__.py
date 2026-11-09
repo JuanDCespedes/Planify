@@ -1,0 +1,1 @@
+"""Servicio de planificación para eventos, categorías y rutinas."""

@@ -1,4 +1,4 @@
-"""Punto de entrada para ejecutar Planify en desarrollo con Flask."""
+"""Punto de entrada Flask para ejecutar Planify en desarrollo local."""
 
 from planify import create_app
 

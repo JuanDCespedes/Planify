@@ -1,4 +1,4 @@
-"""Extensiones compartidas durante la creación de la aplicación."""
+"""Instancias de extensiones Flask compartidas por la aplicación."""
 
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address

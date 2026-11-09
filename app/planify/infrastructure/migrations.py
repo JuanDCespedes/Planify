@@ -1,4 +1,4 @@
-"""Migraciones incrementales para instalaciones SQLite existentes."""
+"""Migraciones compatibles con bases SQLite creadas por versiones anteriores."""
 
 from sqlalchemy import inspect, text
 
@@ -20,12 +20,7 @@ DEFAULT_CATEGORIES = (
 
 
 def migrate_sqlite_user_ownership(engine):
-    """Actualiza tablas SQLite antiguas sin apropiarse de registros huérfanos.
-
-    Añade columnas de propiedad y preferencias, crea categorías por usuario y
-    enlaza eventos heredados con categorías personales compatibles. No actúa
-    sobre motores que no sean SQLite.
-    """
+    """Añade columnas y relaciones de propiedad sin asignar filas huérfanas."""
     if engine.dialect.name != "sqlite":
         return
 

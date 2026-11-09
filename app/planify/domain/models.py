@@ -1,4 +1,4 @@
-"""Modelos ORM que representan las cuentas y sus datos de planificación."""
+"""Entidades ORM y relaciones persistidas por Planify."""
 
 from datetime import date, datetime, time, timezone
 
@@ -76,7 +76,7 @@ class Event(Base):
 
 
 class Category(Base):
-    """Categoría personalizada que pertenece a una cuenta."""
+    """Categoría personalizada cuyo nombre es único dentro de una cuenta."""
 
     __tablename__ = "categories"
     __table_args__ = (UniqueConstraint("user_id", "name", name="uq_categories_user_name"),)
@@ -88,7 +88,7 @@ class Category(Base):
 
 
 class RoutineBlock(Base):
-    """Bloque de rutina semanal de una cuenta."""
+    """Bloque semanal identificado por día, hora de inicio y duración."""
 
     __tablename__ = "routine_blocks"
 
@@ -101,7 +101,7 @@ class RoutineBlock(Base):
 
 
 class Notification(Base):
-    """Aviso persistido con estado de lectura y seguimiento de entrega."""
+    """Aviso persistido con lectura, deduplicación y seguimiento de correo."""
 
     __tablename__ = "notifications"
 
@@ -122,7 +122,7 @@ class Notification(Base):
 
 
 class PushSubscription(Base):
-    """Suscripción Web Push de un navegador perteneciente a una cuenta."""
+    """Suscripción Web Push de un navegador vinculada a una cuenta."""
 
     __tablename__ = "push_subscriptions"
     __table_args__ = (Index("uq_push_subscriptions_endpoint", "endpoint", unique=True),)
