@@ -61,6 +61,7 @@ La aplicación queda en [http://localhost:8000](http://localhost:8000). SMTP y V
 - [Manual de usuario](app/docs/manual-usuario.md)
 - [Arquitectura de microservicios y flujos](app/docs/arquitectura.md)
 - [Trazabilidad de requisitos](app/docs/trazabilidad.md)
+- [Diagramas del sistema](diagramas/README.md)
 - [Requisitos e historias de usuario](documentacion/requisitos.md)
 - [Metodología ágil y bibliografía](documentacion/metodologia.md)
 
