@@ -10,12 +10,10 @@ Desde la carpeta del repositorio:
 
 ```powershell
 cd app
-py -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-Copy-Item .env.example .env
+powershell -ExecutionPolicy Bypass -File prepare-planify.ps1
 ```
 
-El lanzador genera un token interno aleatorio por ejecución. Mantén `.env` fuera de Git; agrega ahí tus credenciales OAuth si habilitas Google. Si ya existe `app/instance/planify.db`, respáldala y ejecuta la migración antes de iniciar los servicios:
+El preparador requiere Python 3.10+ y conexión a Internet la primera vez. Crea `.venv`, instala las dependencias y genera `.env` únicamente si no existe. El lanzador genera un token interno por ejecución. Si ya tienes una base heredada `app/instance/planify.db`, respáldala y migra antes de iniciar los servicios:
 
 ```powershell
 .\.venv\Scripts\python.exe migrate_to_microservices.py
@@ -27,7 +25,7 @@ Inicia los cuatro procesos:
 powershell -ExecutionPolicy Bypass -File start-planify.ps1
 ```
 
-Abre [http://127.0.0.1:5000](http://127.0.0.1:5000). Para detener los procesos iniciados por el lanzador:
+Abre [http://127.0.0.1:5000](http://127.0.0.1:5000) y crea una cuenta; recibirás datos de muestra para la presentación. El acceso por correo funciona sin OAuth. Google OAuth es opcional y requiere tus credenciales privadas en `.env` y la URI local registrada en Google Cloud. Para detener los procesos iniciados por el lanzador:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File stop-planify.ps1

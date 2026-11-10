@@ -1,7 +1,7 @@
 """Pruebas integradas del gateway contra los tres servicios REST."""
 
 from urllib.parse import urlencode, urlsplit
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 import unittest
 from unittest.mock import patch
 
@@ -124,6 +124,29 @@ class MicroserviceIntegrationTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Agenda del día".encode(), response.data)
         self.assertNotIn("planify_engine", self.gateway_app.extensions)
+
+        service_headers = {"Authorization": f"Bearer {TOKEN}"}
+        today = date.today()
+        demo_events = self.service_apps["planning.test"].get(
+            f"/api/v1/users/1/events?start={today.isoformat()}&end={(today + timedelta(days=7)).isoformat()}",
+            headers=service_headers,
+        ).json["events"]
+        demo_routines = self.service_apps["planning.test"].get(
+            f"/api/v1/users/1/routines?day={today.weekday()}",
+            headers=service_headers,
+        ).json["routines"]
+        self.assertEqual(len(demo_events), 5)
+        self.assertEqual(len(demo_routines), 4)
+        self.service_apps["planning.test"].post(
+            "/api/v1/users/1/bootstrap", headers=service_headers
+        )
+        self.assertEqual(
+            len(self.service_apps["planning.test"].get(
+                f"/api/v1/users/1/events?start={today.isoformat()}&end={(today + timedelta(days=7)).isoformat()}",
+                headers=service_headers,
+            ).json["events"]),
+            5,
+        )
 
         event_response = self.client.post(
             "/events/new",

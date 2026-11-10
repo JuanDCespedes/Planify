@@ -2,7 +2,7 @@
 
 import hmac
 import os
-from datetime import date, time
+from datetime import date, time, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -101,13 +101,60 @@ def create_app(test_config=None):
 
     @app.post("/api/v1/users/<int:user_id>/bootstrap")
     def bootstrap_user(user_id):
-        """Crea categorías base al aprovisionar un usuario nuevo."""
+        """Crea categorías y datos de muestra solo al aprovisionar una cuenta vacía."""
         session = g.planning_session
         repository = PlanningRepository(session)
         existing = {item.color for item in repository.categories(user_id)}
+        categories_by_color = {}
         for name, color in DEFAULT_CATEGORIES:
             if color not in existing:
-                session.add(Category(user_id=user_id, name=name, color=color))
+                category = Category(user_id=user_id, name=name, color=color)
+                session.add(category)
+                categories_by_color[color] = category
+        session.flush()
+        categories_by_color.update({item.color: item for item in repository.categories(user_id)})
+
+        if not session.query(Event.id).filter_by(user_id=user_id).first():
+            today = date.today()
+            samples = (
+                ("Planificar la semana", today, time(9, 0), "work", "15m"),
+                ("Revisar avances del proyecto", today, time(11, 30), "study", "30m"),
+                ("Pausa para caminar", today, time(16, 0), "health", "at_time"),
+                ("Entrega del proyecto", today + timedelta(days=2), time(10, 0), "study", "1d"),
+                ("Café con Alex", today + timedelta(days=4), time(17, 30), "personal", "1h"),
+            )
+            session.add_all(
+                [
+                    Event(
+                        user_id=user_id,
+                        title=title,
+                        event_date=event_date,
+                        start_time=start_time,
+                        category_id=categories_by_color[color].id,
+                        reminder=reminder,
+                    )
+                    for title, event_date, start_time, color, reminder in samples
+                ]
+            )
+
+        if not session.query(RoutineBlock.id).filter_by(user_id=user_id).first():
+            session.add_all(
+                [
+                    RoutineBlock(
+                        user_id=user_id,
+                        title=title,
+                        start_time=start_time,
+                        duration_minutes=duration,
+                        day_of_week=date.today().weekday(),
+                    )
+                    for title, start_time, duration in (
+                        ("Rutina de mañana", time(7, 0), 45),
+                        ("Bloque de concentración", time(9, 0), 90),
+                        ("Pausa y estiramientos", time(11, 0), 15),
+                        ("Cierre del día", time(17, 0), 30),
+                    )
+                ]
+            )
         session.commit()
         return jsonify({"categories": [_category_dto(item) for item in repository.categories(user_id)]})
 

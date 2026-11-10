@@ -11,37 +11,30 @@ Planify es una aplicación de planificación personal en español. Cada cuenta t
 ## Ejecutar en Windows
 
 ### Requisitos
-
+- Windows 10/11.
+- Python 3.10 o posterior en PATH (`py`).
+- Conexión a Internet durante la primera preparación para instalar paquetes.
 
 ### Instalación
 
-1. Abre `planify.code-workspace` en VS Code o abre esta carpeta.
-2. En la terminal integrada de PowerShell, crea y activa el entorno virtual:
+1. Clona el repositorio y entra a `app/`, o abre esta carpeta en VS Code.
+2. Ejecuta el preparador desde PowerShell:
 
    ```powershell
-   py -m venv .venv
-   .\.venv\Scripts\Activate.ps1
+   powershell -ExecutionPolicy Bypass -File prepare-planify.ps1
    ```
 
-   Si PowerShell bloquea la activación, ejecuta `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` en esa misma terminal y vuelve a activar el entorno.
+   El script crea `.venv`, instala las dependencias y crea `.env` solo si aún no existe. No reemplaza un `.env` existente.
 
-3. Instala las dependencias:
+3. Inicia los servicios:
 
    ```powershell
-   python -m pip install -r requirements.txt
+   powershell -ExecutionPolicy Bypass -File start-planify.ps1
    ```
 
-4. El lanzador genera un token interno aleatorio para esos cuatro procesos. No hace falta guardarlo en `.env`.
+4. Abre [http://127.0.0.1:5000](http://127.0.0.1:5000) y crea una cuenta. El servicio de planificación agrega datos de muestra a las cuentas nuevas para facilitar la demostración. El acceso por correo funciona sin credenciales OAuth.
 
-5. Inicia los cuatro procesos en segundo plano desde PowerShell:
-
-   ```powershell
-   .\start-planify.ps1
-   ```
-
-   Si PowerShell bloquea el script, permite su ejecución solo en esa terminal con `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` y vuelve a ejecutarlo. Los registros se guardan en `%TEMP%\Planify\logs`.
-
-6. Visita [http://127.0.0.1:5000](http://127.0.0.1:5000), crea tu cuenta y entra al planificador. Para detener únicamente los procesos iniciados por el lanzador, ejecuta `powershell -ExecutionPolicy Bypass -File stop-planify.ps1` desde la raíz del proyecto.
+Para detener los cuatro procesos, ejecuta `powershell -ExecutionPolicy Bypass -File stop-planify.ps1`. Los registros están en `%TEMP%\Planify\logs`.
 
 ## Servicios y migración de datos
 
