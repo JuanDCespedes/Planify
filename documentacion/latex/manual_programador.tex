@@ -1,0 +1,124 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{listings}
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible,
+  keepspaces=true
+}
+
+\title{Planify\\Manual del programador}
+\author{Documentación técnica}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Objetivo}
+Esta guía orienta a quienes desarrollan, prueban o despliegan Planify. Describe los requisitos, la preparación del entorno, la estructura del código, la ejecución, las pruebas y las consideraciones de mantenimiento. La arquitectura funcional completa se encuentra también en \texttt{app/docs/arquitectura.md}.
+
+\section{Requisitos previos}
+\begin{itemize}
+  \item Windows 10/11 para los scripts locales documentados.
+  \item Python 3.10 o posterior en PATH (comando \texttt{py}).
+  \item Conexión a Internet durante la primera instalación de dependencias.
+  \item Docker Desktop y Docker Compose si se requiere el despliegue en contenedores.
+\end{itemize}
+
+\section{Preparación y ejecución local}
+Desde PowerShell, abre la carpeta \texttt{app} y prepara el entorno:
+\begin{lstlisting}
+cd app
+powershell -ExecutionPolicy Bypass -File prepare-planify.ps1
+\end{lstlisting}
+El preparador crea \texttt{.venv}, instala las dependencias y genera \texttt{.env} únicamente si no existe. No reemplaza un archivo existente. Inicia los cuatro procesos con:
+\begin{lstlisting}
+powershell -ExecutionPolicy Bypass -File start-planify.ps1
+\end{lstlisting}
+La interfaz queda disponible en \texttt{http://127.0.0.1:5000}. Para detener los procesos iniciados por el lanzador:
+\begin{lstlisting}
+powershell -ExecutionPolicy Bypass -File stop-planify.ps1
+\end{lstlisting}
+Los registros locales se guardan bajo \texttt{\%TEMP\%\textbackslash Planify\textbackslash logs}. El lanzador desactiva SMTP y Web Push por defecto para evitar envíos reales durante el desarrollo.
+
+\section{Estructura del repositorio}
+\begin{description}
+  \item[\texttt{app.py}, \texttt{serve.py}] Inicio del gateway para desarrollo y ejecución WSGI.
+  \item[\texttt{planify/config.py}] Lectura de configuración y valores predeterminados.
+  \item[\texttt{planify/domain/}] Entidades y reglas de dominio.
+  \item[\texttt{planify/application/}] Servicios de autenticación y casos de uso.
+  \item[\texttt{planify/infrastructure/}] Clientes HTTP, seguridad y persistencia de compatibilidad.
+  \item[\texttt{planify/presentation/}] Rutas del gateway y de compatibilidad.
+  \item[\texttt{identity\_service/}] API independiente para cuentas, credenciales y preferencias.
+  \item[\texttt{planning\_service/}] API independiente para eventos, categorías y rutinas.
+  \item[\texttt{notification\_service/}] API de avisos, scheduler, persistencia y adaptadores de entrega.
+  \item[\texttt{planify/templates/}, \texttt{planify/static/}] Vistas Jinja, CSS, JavaScript y service worker.
+  \item[\texttt{tests/}] Pruebas unitarias y de integración.
+  \item[\texttt{docs/}] Documentación de usuario, arquitectura y trazabilidad.
+\end{description}
+
+\section{Responsabilidades y límites de datos}
+El gateway sirve la interfaz y mantiene la sesión; no consulta directamente las bases de los servicios en modo de microservicios. Identidad posee usuarios y preferencias; planificación posee eventos, categorías y rutinas; notificaciones posee avisos, suscripciones y entregas. Cada servicio es el único propietario de su SQLite y ofrece operaciones mediante API REST interna.
+
+Las operaciones personales deben usar el identificador de usuario obtenido de la sesión validada y mantener ese límite en toda consulta. El token de servicio autentica llamadas internas, pero no sustituye la comprobación de propiedad de los datos. No se deben agregar accesos directos a las bases ajenas ni asumir que hay una transacción SQL compartida.
+
+\section{Pruebas}
+Ejecuta la suite desde \texttt{app/} utilizando el intérprete del entorno virtual:
+\begin{lstlisting}
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+\end{lstlisting}
+Las pruebas existentes cubren la aplicación, la integración de microservicios, la migración y el servicio de notificaciones. Al modificar una operación, comprueba los casos de éxito, validación, autorización por propietario y comportamiento entre servicios pertinente.
+
+\section{Migración desde la base monolítica}
+Si existe \texttt{instance/planify.db}, respáldala y ejecuta la migración antes de iniciar los servicios por primera vez:
+\begin{lstlisting}
+.\.venv\Scripts\python.exe migrate_to_microservices.py
+\end{lstlisting}
+La herramienta copia filas con propietario a las tres bases, conserva identificadores, omite identificadores ya copiados y no modifica ni elimina la base original. En Docker puede ejecutarse con el perfil dedicado:
+\begin{lstlisting}
+docker compose --profile migration run --rm migrate
+\end{lstlisting}
+
+\section{Despliegue con Docker Compose}
+Configura un archivo local \texttt{.env} con una clave secreta y un token interno aleatorios; no los guardes en el repositorio. Después inicia el sistema:
+\begin{lstlisting}
+docker compose up --build -d
+\end{lstlisting}
+La aplicación se publica en \texttt{http://localhost:8000}. Para detener los contenedores sin borrar los volúmenes persistentes:
+\begin{lstlisting}
+docker compose down
+\end{lstlisting}
+Compose mantiene identidad, planificación y notificaciones en la red interna. Los datos se guardan en volúmenes separados. No uses comandos que eliminen volúmenes si se deben conservar los datos. Para una migración heredada, ejecuta primero el perfil \texttt{migration}.
+
+\section{Configuración de integraciones}
+\subsection{Google OAuth}
+Google OAuth es opcional. Configura \texttt{GOOGLE\_CLIENT\_ID}, \texttt{GOOGLE\_CLIENT\_SECRET} y, cuando corresponda, \texttt{GOOGLE\_REDIRECT\_URI} en el entorno privado de ejecución. El origen y el callback deben coincidir exactamente con los registrados en Google Cloud. No copies credenciales a \texttt{.env.example}, documentación pública ni control de versiones.
+
+\subsection{Correo y Web Push}
+El correo necesita SMTP en el servicio de notificaciones; por ejemplo, host, puerto, usuario, contraseña y dirección de remitente. El envío también debe habilitarse mediante configuración de Planify. Web Push necesita claves VAPID, HTTPS (excepto \texttt{localhost}) y autorización/suscripción del navegador. La configuración de Google para iniciar sesión es independiente de las credenciales de correo.
+
+En un despliegue con varias instancias, no ejecutes el scheduler integrado en cada proceso web: podría duplicar tareas. Mantén una única instancia responsable del scheduler o desactívalo en los procesos web y ejecuta un scheduler dedicado.
+
+\section{Seguridad operativa}
+\begin{itemize}
+  \item Mantén \texttt{.env}, secretos OAuth, tokens internos, contraseñas SMTP y claves VAPID fuera del repositorio.
+  \item En producción, usa HTTPS y una clave de sesión y token de servicio fuertes y no reutilizados.
+  \item Conserva almacenamiento persistente para las tres bases de datos y planifica copias de seguridad y pruebas de restauración.
+  \item No publiques los puertos internos de los microservicios; permite su acceso solo desde la red de servicios.
+  \item Tras cambios en credenciales o variables de entorno, reinicia los procesos que deban leerlas.
+\end{itemize}
+
+\section{Límites de la implementación}
+La comunicación entre servicios es síncrona, sin cola durable ni transacciones distribuidas. La eliminación de una cuenta puede requerir coordinación entre servicios. El scheduler integrado requiere una sola instancia. Antes de aumentar réplicas o volumen, hay que resolver coordinación e idempotencia compartida, y evaluar SQLite, observabilidad, reintentos y respaldos.
+
+\section{Documentos relacionados}
+El manual de usuario y la descripción general del programa están en \texttt{manual\_usuario.tex} y \texttt{descripcion\_programa.tex}. La arquitectura detallada, el manual de usuario existente y la trazabilidad se mantienen en formato Markdown dentro de \texttt{app/docs}.
+
+\end{document}

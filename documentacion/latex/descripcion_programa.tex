@@ -1,0 +1,92 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+
+\title{Planify\\Descripción del programa}
+\author{Documentación del proyecto}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Propósito}
+Planify es una aplicación web personal que permite organizar eventos, rutinas semanales y recordatorios. La interfaz está en español y los datos de planificación, cuenta y notificaciones se aíslan por usuario. El sistema se diseñó para ofrecer una agenda sencilla desde navegadores de escritorio y móviles.
+
+\section{Alcance funcional}
+\begin{itemize}
+  \item Registro, inicio y cierre de sesión mediante correo y contraseña; Google OAuth es opcional.
+  \item Panel con eventos de hoy y de los próximos siete días, y calendario mensual.
+  \item Creación, modificación y eliminación de eventos con categorías y anticipación de recordatorio.
+  \item Creación de bloques semanales de rutina.
+  \item Centro de notificaciones con acciones para marcar avisos como leídos o descartarlos.
+  \item Preferencias de perfil, recordatorios, canales de entrega, tema y categorías.
+\end{itemize}
+
+\section{Actores}
+\begin{description}
+  \item[Visitante] Puede registrarse, iniciar sesión y, si está configurado, autenticarse con Google.
+  \item[Usuario autenticado] Administra sus propios eventos, rutinas, notificaciones, perfil y preferencias.
+  \item[Administrador/desarrollador] Configura los servicios, secretos, canales externos, almacenamiento y despliegue.
+\end{description}
+
+\section{Arquitectura}
+La solución se despliega como cuatro procesos: un gateway web y tres microservicios de dominio. El gateway presenta páginas HTML y mantiene la sesión web; los servicios de identidad, planificación y notificaciones son propietarios de sus datos y exponen APIs REST internas autenticadas. Cada base de datos pertenece a un único servicio. No hay joins SQL ni transacciones comunes entre servicios.
+
+\begin{tabular}{|p{3.1cm}|p{7.3cm}|p{3.2cm}|}
+\hline
+\textbf{Componente} & \textbf{Responsabilidad} & \textbf{Persistencia} \\
+\hline
+Gateway web & Interfaz, cookie de sesión, CSRF, límites HTTP y traducción de formularios a llamadas REST. & Sin base de dominio. \\
+\hline
+Identidad & Usuarios, hash de contraseña, vínculo con Google y preferencias. & \texttt{identity.db}. \\
+\hline
+Planificación & Eventos, categorías y bloques semanales; consultas limitadas por \texttt{user\_id}. & \texttt{planning.db}. \\
+\hline
+Notificaciones & Avisos, deduplicación, estado de lectura, suscripciones push, scheduler y adaptadores SMTP/Web Push. & \texttt{notifications.db}. \\
+\hline
+\end{tabular}
+
+\subsection{Tecnologías}
+El proyecto utiliza Python, Flask, plantillas Jinja, SQLAlchemy y SQLite. Las integraciones opcionales incluyen Authlib para Google OAuth, SMTP para correo y Web Push mediante claves VAPID. Docker Compose define la topología de los servicios y volúmenes persistentes.
+
+\subsection{Organización por capas}
+\begin{itemize}
+  \item \texttt{planify/presentation/}: rutas HTML del gateway y rutas de compatibilidad.
+  \item \texttt{planify/application/}: autenticación y casos de uso de eventos, rutinas, categorías y notificaciones.
+  \item \texttt{planify/domain/}: entidades y reglas de negocio.
+  \item \texttt{planify/infrastructure/}: clientes HTTP internos, persistencia legacy y utilidades de seguridad.
+  \item \texttt{identity\_service/}, \texttt{planning\_service/} y \texttt{notification\_service/}: APIs, modelos y procesos independientes de cada dominio.
+  \item \texttt{planify/templates/} y \texttt{planify/static/}: vistas, estilos, JavaScript y service worker.
+\end{itemize}
+
+\section{Flujos principales}
+\subsection{Gestión de eventos}
+El usuario envía el formulario desde el navegador. El gateway valida la sesión, obtiene el identificador de usuario y llama a planificación mediante la API interna. El servicio valida los campos y la propiedad de la categoría, y guarda el evento en su propia base. El resultado JSON se transforma en una respuesta o mensaje de validación para la interfaz.
+
+\subsection{Generación de recordatorios}
+El scheduler del servicio de notificaciones revisa la agenda cada minuto y consulta identidad y planificación. Combina preferencias con los eventos y rutinas, aplica horas silenciosas y tolerancia de vencimiento, y usa una clave de deduplicación antes de guardar cada aviso. La entrega puede usar el centro de la aplicación, SMTP o Web Push según configuración. El scheduler integrado está pensado para ejecutarse en una sola réplica.
+
+\section{Seguridad y privacidad}
+\begin{itemize}
+  \item Las contraseñas se almacenan como hashes scrypt, no como texto recuperable.
+  \item Las sesiones utilizan cookies \texttt{HttpOnly} y \texttt{SameSite=Lax}; en producción se requiere \texttt{Secure}.
+  \item Las mutaciones web están protegidas con CSRF. Las rutas de acceso tienen limitación de intentos.
+  \item Los servicios internos exigen un token compartido. Este autentica al servicio, pero no sustituye la autorización por usuario.
+  \item Los repositorios y servicios filtran los datos por propietario. Las APIs internas no se exponen al host en la configuración Docker Compose.
+  \item Las credenciales OAuth, SMTP y VAPID deben suministrarse por configuración local segura; no deben incluirse en el repositorio.
+\end{itemize}
+
+\section{Limitaciones y estado}
+La pantalla de recuperación de contraseña no envía enlaces. La rutina se asigna al día actual de la semana y no ofrece edición, eliminación o selección de frecuencia desde la interfaz. El calendario muestra eventos, sin una entidad separada de tareas ni un panel de detalle por día. La entrega es síncrona, no existe cola durable y no hay transacciones distribuidas entre las bases. La escalabilidad y el rendimiento no han sido validados mediante pruebas de carga.
+
+\section{Despliegue}
+En Windows se puede iniciar localmente mediante los scripts PowerShell del directorio \texttt{app}. Docker Compose despliega el gateway y los tres servicios, con volúmenes persistentes independientes. Los puertos internos de microservicios no se publican en el host. La migración opcional copia datos de una instalación monolítica a las bases separadas, conserva identificadores y no modifica la base de origen.
+
+\section{Documentación relacionada}
+Este documento describe el sistema a nivel de programa. Para instrucciones de operación, consulta \texttt{manual\_usuario.tex}; para instalación, pruebas y mantenimiento del código, consulta \texttt{manual\_programador.tex}. La arquitectura, el manual de usuario y la trazabilidad detallada también están disponibles en formato Markdown dentro de \texttt{app/docs}.
+
+\end{document}

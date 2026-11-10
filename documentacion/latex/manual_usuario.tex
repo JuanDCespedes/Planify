@@ -1,0 +1,92 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+
+\title{Planify\\Manual de usuario}
+\author{Documentación del proyecto}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Introducción}
+Planify es una aplicación web en español para organizar eventos, rutinas semanales y recordatorios personales. Cada cuenta tiene sus propios datos. Este manual describe las funciones disponibles en la versión actual.
+
+\section{Acceder y crear una cuenta}
+\begin{enumerate}
+  \item Abre Planify en el navegador.
+  \item Selecciona \textbf{Crear cuenta} y registra un correo válido y una contraseña de 12 a 128 caracteres.
+  \item Al completar el registro, la aplicación inicia sesión y crea categorías iniciales para tu cuenta.
+  \item En visitas posteriores, inicia sesión con el mismo correo y contraseña. El acceso con Google aparece cuando el administrador configuró OAuth.
+  \item Usa \textbf{Cerrar sesión} para terminar la sesión en ese navegador.
+\end{enumerate}
+
+La pantalla de recuperación de contraseña es informativa: el envío de enlaces de restablecimiento todavía no está implementado.
+
+\section{Navegación}
+\begin{itemize}
+  \item \textbf{Panel}: muestra los eventos de hoy y los de los próximos siete días. Permite crear, editar o eliminar eventos.
+  \item \textbf{Calendario}: presenta los eventos en una vista mensual. Los controles permiten cambiar de mes y cada evento visible enlaza a su edición.
+  \item \textbf{Mi rutina}: muestra los bloques correspondientes al día actual y permite añadir un bloque para ese día de la semana.
+  \item \textbf{Notificaciones}: permite consultar avisos, marcarlos como leídos y descartarlos.
+  \item \textbf{Configuración}: contiene preferencias de recordatorios, canales de entrega, perfil, contraseña y categorías.
+\end{itemize}
+El menú lateral permite cambiar entre estas secciones. El diseño se adapta a pantallas pequeñas y grandes.
+
+\section{Crear o editar un evento}
+\begin{enumerate}
+  \item Pulsa \textbf{Nuevo evento} en el panel o en el calendario.
+  \item Escribe un título de hasta 120 caracteres.
+  \item Selecciona la fecha y la hora de inicio.
+  \item Selecciona una categoría existente o escribe un nombre nuevo. Las categorías creadas desde el formulario se guardan en la cuenta y se pueden reutilizar.
+  \item Elige cuándo recibir el recordatorio: a la hora del evento, 5, 15 o 30 minutos antes, 1 hora antes o 1 día antes. Las opciones desactivadas en Configuración no se ofrecen para eventos nuevos.
+  \item Pulsa \textbf{Crear evento}. Para un evento existente, pulsa \textbf{Guardar cambios}.
+\end{enumerate}
+Para editar, abre el evento desde el panel o desde el calendario. Para eliminarlo, usa el control de eliminación en el panel y confirma la acción.
+
+\section{Consultar el calendario}
+El calendario agrupa los eventos propios por día y permite avanzar o retroceder un mes. Si un día contiene más eventos de los que caben en la celda, se indica cuántos quedan ocultos. En esta versión el calendario presenta eventos; no existe una entidad separada de tareas pendientes ni una vista lateral de detalle al seleccionar un día.
+
+\section{Crear una rutina}
+\begin{enumerate}
+  \item Abre \textbf{Mi rutina}.
+  \item Escribe el nombre del bloque, su hora de inicio y su duración, entre 5 y 480 minutos.
+  \item Pulsa \textbf{Añadir a mi rutina}.
+\end{enumerate}
+El bloque se guarda para el día de la semana actual y vuelve a aparecer ese día cada semana. La versión actual no permite elegir otro día desde el formulario, definir una hora final directamente, editar o eliminar bloques, ni configurar reglas de repetición distintas.
+
+\section{Notificaciones y recordatorios}
+El centro de notificaciones lista los avisos recientes de la cuenta. Cada aviso se puede marcar como leído o descartar; descartar lo elimina del centro. \textbf{Marcar todo como leído} actualiza todos los avisos pendientes.
+
+Los canales disponibles dependen de la configuración del servidor:
+\begin{itemize}
+  \item Las notificaciones dentro de la aplicación se guardan en la base de datos.
+  \item Los avisos del navegador necesitan permiso del usuario y Planify abierto para la consulta periódica.
+  \item Web Push puede mostrarse con el navegador cerrado, pero requiere claves VAPID, HTTPS (salvo \texttt{localhost}) y una suscripción por navegador.
+  \item El correo requiere configuración SMTP. Los correos por evento o rutina y el resumen semanal son opciones independientes.
+  \item Las horas silenciosas retrasan los avisos hasta que termina el intervalo configurado.
+\end{itemize}
+Las preferencias de rutina permiten avisar al inicio o 5 minutos antes y activar un sonido. El sonido solo puede reproducirse cuando Planify está abierta y el navegador lo permite. Si un canal externo no está configurado, activarlo en la interfaz no basta para que se envíen avisos por ese canal.
+
+\section{Perfil y configuración}
+En \textbf{Configuración} puedes:
+\begin{itemize}
+  \item Activar o desactivar anticipaciones de recordatorios y elegir la anticipación predeterminada.
+  \item Cambiar las preferencias de avisos de rutina, las horas silenciosas y los canales de entrega.
+  \item Activar el tema oscuro. La selección se guarda en el almacenamiento local del navegador, no como preferencia sincronizada entre dispositivos.
+  \item Cambiar el nombre y el correo. Para cambiar el correo, se solicita la contraseña actual; las cuentas creadas solo con Google deben crear primero una contraseña.
+  \item Crear, renombrar, recolorear y eliminar categorías. No se puede eliminar una categoría que tenga eventos ni la última categoría de la cuenta.
+  \item Cambiar o crear una contraseña. Se requiere la contraseña actual si el acceso local ya estaba habilitado.
+  \item Eliminar la cuenta y sus datos. La acción requiere confirmaciones adicionales y no se puede deshacer.
+\end{itemize}
+
+\section{Ayuda y limitaciones conocidas}
+La recuperación de contraseña por correo aún no está disponible. Las rutinas actuales se asignan al día de la semana en que se crean y no tienen controles de edición o eliminación. El correo, Google OAuth y Web Push dependen de que el administrador haya configurado los servicios correspondientes.
+
+Para instrucciones de instalación y configuración del servidor, consulta la guía del programador y la guía de instalación de Planify.
+
+\end{document}
