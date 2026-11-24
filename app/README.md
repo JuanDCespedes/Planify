@@ -148,6 +148,7 @@ GOOGLE_CLIENT_SECRET=tu-secreto-de-cliente
 
    ```text
    http://127.0.0.1:5000
+   http://127.0.0.1:8000
    https://planify.example.com
    ```
 
@@ -155,10 +156,11 @@ GOOGLE_CLIENT_SECRET=tu-secreto-de-cliente
 
    ```text
    http://127.0.0.1:5000/auth/google/callback
+   http://127.0.0.1:8000/auth/google/callback
    https://planify.example.com/auth/google/callback
    ```
 
-   Sustituye `planify.example.com` por el dominio HTTPS de tu despliegue. Los valores registrados en Google Cloud deben coincidir exactamente con el dominio y la ruta que usa la aplicación.
+   El puerto 5000 se usa con los scripts locales y el monolito Docker; el puerto 8000 se usa con microservicios en Docker Compose. Sustituye `planify.example.com` por el dominio HTTPS de tu despliegue. Los valores registrados en Google Cloud deben coincidir exactamente con el dominio y la ruta que usa la aplicación.
 
 5. Copia el **ID de cliente** y el **secreto de cliente** en PowerShell, dentro de la misma terminal desde la que iniciarás Planify:
 
@@ -209,51 +211,45 @@ Requiere Docker Desktop instalado y en ejecución (con Docker Compose V2). Docke
 
 ### Monolito en Docker (alternativa de un contenedor)
 
-1. Si aún no tienes `.env`, copia el ejemplo. No sobrescribas un `.env` existente. Genera una clave secreta:
+Antes de iniciar cualquiera de los modos Docker, prepara `.env` una sola vez:
 
-   ```powershell
-   Copy-Item .env.example .env
-   py -c "import secrets; print(secrets.token_urlsafe(48))"
-   ```
+```powershell
+powershell -ExecutionPolicy Bypass -File prepare-docker.ps1
+```
 
-   Pega el valor generado en `PLANIFY_SECRET_KEY` dentro de `.env`. Mantén este archivo privado y fuera de GitHub.
-2. Construye e inicia el monolito:
+El script no requiere Python y no sobrescribe un `.env` existente. Genera claves aleatorias para Planify y los servicios; para Google, añade localmente `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET` al `.env`. Nunca publiques ese archivo.
+
+1. Construye e inicia el monolito:
 
    ```powershell
    docker compose -f docker-compose.monolith.yml up --build -d
    ```
 
-3. Abre [http://127.0.0.1:5000](http://127.0.0.1:5000). Los datos persisten en el volumen `planify-monolith-data`. Para detenerlo sin borrar ese volumen:
+2. Abre [http://127.0.0.1:5000](http://127.0.0.1:5000). Los datos persisten en el volumen `planify-monolith-data`. Para detenerlo sin borrar ese volumen:
 
    ```powershell
    docker compose -f docker-compose.monolith.yml down
    ```
 
-Este modo fuerza `PLANIFY_MICROSERVICES_ENABLED=false`: Flask ejecuta las rutas y servicios de aplicación en un proceso, usa una SQLite y corre el scheduler integrado. Está pensado para demostración local, con depuración desactivada y el puerto limitado al propio computador (`127.0.0.1`); no lo publiques directamente en Internet. SMTP y OAuth son opcionales; sus valores locales del `.env` se entregan a este único contenedor.
+Este modo fuerza `PLANIFY_MICROSERVICES_ENABLED=false`: Flask ejecuta las rutas y servicios de aplicación en un proceso, usa una SQLite y corre el scheduler integrado. Está pensado para demostración local, con depuración desactivada y el puerto limitado al propio computador (`127.0.0.1`); no lo publiques directamente en Internet. Usa el callback de Google `http://127.0.0.1:5000/auth/google/callback`. SMTP y OAuth son opcionales; sus valores locales del `.env` se entregan a este único contenedor.
 
 ### Microservicios en Docker Compose
 
-Cada microservicio tiene un volumen SQLite persistente independiente: `identity-data`, `planning-data` y `notification-data`. El contenedor web no contiene una base de negocio.
+Cada microservicio tiene un volumen SQLite persistente independiente: `identity-data`, `planning-data` y `notification-data`. El contenedor web no contiene una base de negocio. El gateway usa el callback de Google `http://127.0.0.1:8000/auth/google/callback`.
 
-1. Copia el archivo de variables y crea una clave secreta aleatoria:
-
-   ```powershell
-   py -3 -c "import secrets; from pathlib import Path; Path('.env').write_text('PLANIFY_ENV=production\nPLANIFY_SECRET_KEY='+secrets.token_urlsafe(48)+'\nPLANIFY_SERVICE_TOKEN='+secrets.token_urlsafe(48)+'\nPLANIFY_DELIVERY_EMAIL_ENABLED=false\nPLANIFY_RATE_LIMIT_STORAGE_URI=memory://\n', encoding='utf-8')"
-   ```
-
-2. Si tienes una base heredada `instance/planify.db`, copia antes sus datos a los volúmenes del Compose:
+1. Si tienes una base heredada `instance/planify.db`, copia antes sus datos a los volúmenes del Compose:
 
    ```powershell
    docker compose --profile migration run --rm migrate
    ```
 
-3. Construye e inicia los cuatro servicios:
+2. Construye e inicia los cuatro servicios:
 
    ```powershell
    docker compose up --build -d
    ```
 
-4. Abre [http://localhost:8000](http://localhost:8000). Para detener los servicios, ejecuta `docker compose down`; los tres volúmenes de datos persisten.
+3. Abre [http://127.0.0.1:8000](http://127.0.0.1:8000). Para detener los servicios, ejecuta `docker compose down`; los tres volúmenes de datos persisten.
 
 Docker Compose mantiene `identity`, `planning` y `notifications` en la red interna y no publica sus puertos. El token compartido autentica las llamadas; cada servicio persiste en un volumen independiente. Para enviar correo, configura SMTP y `PLANIFY_DELIVERY_EMAIL_ENABLED=true`; las credenciales SMTP y la clave privada VAPID solo se inyectan en `notifications`.
 

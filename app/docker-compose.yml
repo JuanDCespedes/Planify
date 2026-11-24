@@ -6,6 +6,7 @@ services:
     environment:
       PLANIFY_MICROSERVICES_ENABLED: "true"
       PLANIFY_SERVICE_TOKEN: "${PLANIFY_SERVICE_TOKEN:-${PLANIFY_DELIVERY_SERVICE_TOKEN:?Configura un token aleatorio en .env}}"
+      GOOGLE_REDIRECT_URI: http://127.0.0.1:8000/auth/google/callback
       IDENTITY_SERVICE_URL: http://identity:8101
       PLANNING_SERVICE_URL: http://planning:8102
       NOTIFICATION_SERVICE_URL: http://notifications:8100

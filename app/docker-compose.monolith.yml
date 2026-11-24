@@ -10,6 +10,7 @@ services:
       PLANIFY_ENABLE_NOTIFICATION_SCHEDULER: "true"
       PLANIFY_SECRET_KEY: ${PLANIFY_SECRET_KEY:?Configura PLANIFY_SECRET_KEY en .env}
       PLANIFY_DATABASE_URL: sqlite:////data/planify.db
+      GOOGLE_REDIRECT_URI: http://127.0.0.1:5000/auth/google/callback
       PORT: "8000"
     ports:
       - "127.0.0.1:5000:8000"

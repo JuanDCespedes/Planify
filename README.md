@@ -51,7 +51,7 @@ docker compose --profile migration run --rm migrate
 docker compose up --build -d
 ```
 
-La aplicación queda en [http://localhost:8000](http://localhost:8000). SMTP y VAPID son opcionales; sus credenciales se entregan solo al contenedor de notificaciones.
+La aplicación queda en [http://127.0.0.1:8000](http://127.0.0.1:8000). SMTP y VAPID son opcionales; sus credenciales se entregan solo al contenedor de notificaciones.
 
 ## Documentación
 
