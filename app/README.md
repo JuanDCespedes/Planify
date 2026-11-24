@@ -7,6 +7,10 @@ Planify es una aplicación de planificación personal en español. Cada cuenta t
 - [Manual de usuario](docs/manual-usuario.md): cuentas, eventos, calendario, rutinas y notificaciones.
 - [Arquitectura técnica](docs/arquitectura.md): capas, rutas, flujos, base de datos y despliegue.
 - [Trazabilidad de requisitos](docs/trazabilidad.md): relación entre historias, requisitos y estado actual.
+- [Comparación Docker y microservicios](docs/comparacion-docker-microservicios.md): diferencias entre ambos modos de despliegue.
+- [Manual de usuario (PDF)](docs/pdf/manual-usuario.pdf)
+- [Manual del programador (PDF)](docs/pdf/manual-programador.pdf)
+- [Descripción del programa (PDF)](docs/pdf/descripcion-del-programa.pdf)
 
 ## Ejecutar en Windows
 
@@ -197,6 +201,37 @@ Authlib valida el estado OAuth y la firma, audiencia, emisor y nonce del ID toke
 El WSGI configura las cookies seguras y crea SQLite en `~/Planify/app/instance/planify.db`, dentro del almacenamiento de tu cuenta. Las cuentas de esta aplicación son independientes; cualquiera puede registrarse y solo verá sus propios datos. La recuperación por correo sigue desactivada.
 
 ## Despliegue con Docker
+
+Requiere Docker Desktop instalado y en ejecución (con Docker Compose V2). Docker es el mecanismo de empaquetado y ejecución; no obliga a usar microservicios. Planify ofrece dos modos alternativos con el mismo código; ejecuta un modo a la vez:
+
+- **Monolito en Docker**: una aplicación/contenedor con todas las capas y una base SQLite.
+- **Microservicios en Docker Compose**: gateway, identidad, planificación y notificaciones como cuatro procesos/contenedores, con bases SQLite independientes.
+
+### Monolito en Docker (alternativa de un contenedor)
+
+1. Si aún no tienes `.env`, copia el ejemplo. No sobrescribas un `.env` existente. Genera una clave secreta:
+
+   ```powershell
+   Copy-Item .env.example .env
+   py -c "import secrets; print(secrets.token_urlsafe(48))"
+   ```
+
+   Pega el valor generado en `PLANIFY_SECRET_KEY` dentro de `.env`. Mantén este archivo privado y fuera de GitHub.
+2. Construye e inicia el monolito:
+
+   ```powershell
+   docker compose -f docker-compose.monolith.yml up --build -d
+   ```
+
+3. Abre [http://127.0.0.1:5000](http://127.0.0.1:5000). Los datos persisten en el volumen `planify-monolith-data`. Para detenerlo sin borrar ese volumen:
+
+   ```powershell
+   docker compose -f docker-compose.monolith.yml down
+   ```
+
+Este modo fuerza `PLANIFY_MICROSERVICES_ENABLED=false`: Flask ejecuta las rutas y servicios de aplicación en un proceso, usa una SQLite y corre el scheduler integrado. Está pensado para demostración local, con depuración desactivada y el puerto limitado al propio computador (`127.0.0.1`); no lo publiques directamente en Internet. SMTP y OAuth son opcionales; sus valores locales del `.env` se entregan a este único contenedor.
+
+### Microservicios en Docker Compose
 
 Cada microservicio tiene un volumen SQLite persistente independiente: `identity-data`, `planning-data` y `notification-data`. El contenedor web no contiene una base de negocio.
 

@@ -4,6 +4,8 @@
 
 Planify se compone de cuatro procesos desplegables: gateway web, identidad, planificación y notificaciones. Cada dominio posee su base SQLite y expone una API REST interna. El gateway conserva solo la sesión web y la interfaz; no abre una base de negocio. Los microservicios también se organizan por capas: separar servicios y separar responsabilidades internas son conceptos complementarios.
 
+Docker no define por sí mismo la arquitectura. Para comparar, `docker-compose.monolith.yml` empaqueta la aplicación monolítica en un contenedor con una base; `docker-compose.yml` despliega el gateway y los tres microservicios en contenedores separados. Consulta la [comparación de despliegues](comparacion-docker-microservicios.md).
+
 Las tecnologías principales son Python, Flask, plantillas Jinja, SQLAlchemy y SQLite. Google OAuth, correo SMTP y Web Push son integraciones opcionales.
 
 ## Estructura del código
